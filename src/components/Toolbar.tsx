@@ -37,7 +37,7 @@ export function Toolbar({ running, threshold, onThresholdChange, onSelectVideo, 
       <label className="ml-auto font-mono text-xs text-[#60736c] max-sm:ml-0">
         Threshold
         <input
-          className="ml-2 w-[65px] border border-[#bdccc5] bg-white p-2.5 text-[#18231f]"
+          className="ml-2 w-16.25 border border-[#bdccc5] bg-white p-2.5 text-[#18231f]"
           type="number"
           min="1"
           max="255"
