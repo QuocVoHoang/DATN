@@ -10,7 +10,7 @@ export function initWasm(): Promise<WasmModule> {
     const script = document.createElement('script');
     window.Module = { onRuntimeInitialized: () => resolve(window.Module as WasmModule) };
     script.src = '/wasm/motion_wasm.js';
-    script.onerror = () => reject(new Error('WASM chưa được build. Chạy npm run build:wasm.'));
+    script.onerror = () => reject(new Error('WASM has not been built. Run npm run build:wasm.'));
     document.head.appendChild(script);
   });
   return modulePromise;
