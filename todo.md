@@ -25,8 +25,9 @@ Updated: 2026-08-27
 
 ### 1. Stabilize MVP
 
-- [ ] Clamp threshold in state to 1-255, not only through HTML input attributes.
-- [ ] Revoke previous video object URL when selecting another file.
+- [x] Clamp threshold in state to 1-255, not only through HTML input attributes.
+- [x] Revoke previous video object URL when selecting another file.
+- [x] Immediately apply threshold change.
 - [ ] Run `npm run build`.
 
 ### 2. Add Camera Input

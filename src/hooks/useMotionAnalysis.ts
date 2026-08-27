@@ -4,6 +4,13 @@ import { countPixelsInRoi, type ROI } from '../features/roi';
 import { MotionEventTracker, type MotionEvent } from '../features/motionEvents';
 
 const defaultRoi: ROI = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
+const minThreshold = 1;
+const maxThreshold = 255;
+
+function clampThreshold(value: number) {
+  if (!Number.isFinite(value)) return minThreshold;
+  return Math.min(maxThreshold, Math.max(minThreshold, Math.round(value)));
+}
 
 export function useMotionAnalysis() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -17,11 +24,18 @@ export function useMotionAnalysis() {
   const [status, setStatus] = useState('No video selected');
   const [running, setRunning] = useState(false);
   const [threshold, setThreshold] = useState(30);
+  const thresholdRef = useRef(threshold);
   const [roi] = useState(defaultRoi);
   const [fps, setFps] = useState(0);
   const [latency, setLatency] = useState(0);
   const [motion, setMotion] = useState(0);
   const [events, setEvents] = useState<MotionEvent[]>([]);
+
+  function updateThreshold(value: number) {
+    const nextThreshold = clampThreshold(value);
+    thresholdRef.current = nextThreshold;
+    setThreshold(nextThreshold);
+  }
 
   useEffect(() => () => {
     // Stop pending frame work and release the browser-owned video URL.
@@ -96,7 +110,7 @@ export function useMotionAnalysis() {
       ctx.drawImage(video, 0, 0, source.width, source.height);
       const image = ctx.getImageData(0, 0, source.width, source.height);
       const started = performance.now();
-      const result = await processWithWasm(image, threshold);
+      const result = await processWithWasm(image, thresholdRef.current);
       if (!runningRef.current || runId !== runIdRef.current) return;
       const elapsed = performance.now() - started;
 
@@ -143,7 +157,7 @@ export function useMotionAnalysis() {
     status,
     running,
     threshold,
-    setThreshold,
+    setThreshold: updateThreshold,
     roi,
     fps,
     latency,
