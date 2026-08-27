@@ -8,7 +8,7 @@ export default function App() {
   const motion = useMotionAnalysis();
 
   return (
-    <main>
+    <main className="mx-auto min-h-screen max-w-[1440px] bg-[#f7faf8] p-5 font-sans text-[#18231f]">
       <AppHeader
         running={motion.running}
         status={motion.status}
@@ -23,7 +23,7 @@ export default function App() {
         onStop={motion.stop}
       />
 
-      <section className="workspace">
+      <section className="grid grid-cols-[minmax(0,1fr)_285px] gap-[18px] max-[800px]:grid-cols-1">
         <VideoStage
           videoRef={motion.videoRef}
           sourceRef={motion.sourceRef}
@@ -38,6 +38,10 @@ export default function App() {
           events={motion.events}
         />
       </section>
+      <footer className="mt-[30px] flex justify-between font-mono text-[11px] tracking-[0.16em] text-[#587168] max-[800px]:block">
+        LOCAL-FIRST VIDEO ANALYTICS
+        <span className="max-[800px]:mt-2 max-[800px]:block">WASM SIMD · PTHREADS · ROI DETECTION</span>
+      </footer>
     </main>
   );
 }
