@@ -9,6 +9,7 @@ export function useMotionAnalysis() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const sourceRef = useRef<HTMLCanvasElement>(null);
   const outputRef = useRef<HTMLCanvasElement>(null);
+  const videoObjectUrlRef = useRef<string | null>(null);
   const runningRef = useRef(false);
   const runIdRef = useRef(0);
   const tracker = useRef(new MotionEventTracker());
@@ -26,7 +27,10 @@ export function useMotionAnalysis() {
     // Stop pending frame work and release the browser-owned video URL.
     runningRef.current = false;
     runIdRef.current++;
-    URL.revokeObjectURL(videoRef.current?.src || '');
+    if (videoObjectUrlRef.current) {
+      URL.revokeObjectURL(videoObjectUrlRef.current);
+      videoObjectUrlRef.current = null;
+    }
   }, []);
 
   async function selectVideo(file?: File) {
@@ -35,7 +39,13 @@ export function useMotionAnalysis() {
     // A new video starts a fresh timeline; restarting same video preserves it.
     tracker.current.reset();
     setEvents([]);
-    videoRef.current.src = URL.createObjectURL(file);
+    if (videoObjectUrlRef.current) {
+      URL.revokeObjectURL(videoObjectUrlRef.current);
+    }
+
+    const videoObjectUrl = URL.createObjectURL(file);
+    videoObjectUrlRef.current = videoObjectUrl;
+    videoRef.current.src = videoObjectUrl;
     await videoRef.current.play().catch(() => undefined);
     setStatus('Video ready');
   }
@@ -74,7 +84,7 @@ export function useMotionAnalysis() {
 
     source.width = output.width = video.videoWidth;
     source.height = output.height = video.videoHeight;
-    setStatus('Analyzing with WASM SIMD + 4 threads');
+    setStatus('Analyzing');
 
     let last = performance.now();
     let frames = 0;
