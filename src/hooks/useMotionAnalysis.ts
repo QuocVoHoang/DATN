@@ -10,6 +10,7 @@ export function useMotionAnalysis() {
   const sourceRef = useRef<HTMLCanvasElement>(null);
   const outputRef = useRef<HTMLCanvasElement>(null);
   const runningRef = useRef(false);
+  const runIdRef = useRef(0);
   const tracker = useRef(new MotionEventTracker());
 
   const [status, setStatus] = useState('No video selected');
@@ -24,32 +25,48 @@ export function useMotionAnalysis() {
   useEffect(() => () => {
     // Stop pending frame work and release the browser-owned video URL.
     runningRef.current = false;
+    runIdRef.current++;
     URL.revokeObjectURL(videoRef.current?.src || '');
   }, []);
 
   async function selectVideo(file?: File) {
     if (!file || !videoRef.current) return;
 
+    // A new video starts a fresh timeline; restarting same video preserves it.
+    tracker.current.reset();
+    setEvents([]);
     videoRef.current.src = URL.createObjectURL(file);
     await videoRef.current.play().catch(() => undefined);
     setStatus('Video ready');
   }
 
   async function start() {
+    if (runningRef.current) return;
+
     if (!videoRef.current?.src) {
       setStatus('Select a video first');
       return;
     }
 
+    const runId = ++runIdRef.current;
+    const video = videoRef.current;
+
+    // Stop can pause the video, so every new analysis run must resume playback.
+    try {
+      await video.play();
+    } catch {
+      setStatus('Unable to play video');
+      return;
+    }
+
+    if (runId !== runIdRef.current) return;
+
     setRunning(true);
     runningRef.current = true;
-    tracker.current.reset();
-    setEvents([]);
 
     // Reset WASM state before starting a fresh frame-processing session.
     await resetWasm();
 
-    const video = videoRef.current;
     const source = sourceRef.current!;
     const output = outputRef.current!;
     const ctx = source.getContext('2d', { willReadFrequently: true })!;
@@ -63,13 +80,14 @@ export function useMotionAnalysis() {
     let frames = 0;
 
     const loop = async () => {
-      if (!runningRef.current) return;
+      if (!runningRef.current || runId !== runIdRef.current) return;
 
       // Hidden source canvas provides pixels; output canvas displays processed data.
       ctx.drawImage(video, 0, 0, source.width, source.height);
       const image = ctx.getImageData(0, 0, source.width, source.height);
       const started = performance.now();
       const result = await processWithWasm(image, threshold);
+      if (!runningRef.current || runId !== runIdRef.current) return;
       const elapsed = performance.now() - started;
 
       out.putImageData(result.processedData, 0, 0);
@@ -102,6 +120,7 @@ export function useMotionAnalysis() {
 
   function stop() {
     runningRef.current = false;
+    runIdRef.current++;
     setRunning(false);
     videoRef.current?.pause();
     setStatus('Stopped');

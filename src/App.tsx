@@ -7,38 +7,37 @@ import { useMotionAnalysis } from './hooks/useMotionAnalysis';
 export default function App() {
   const motion = useMotionAnalysis();
 
-  return <main>
-    <AppHeader
-      running={motion.running}
-      status={motion.status}
-    />
-
-    <Toolbar
-      running={motion.running}
-      threshold={motion.threshold}
-      onThresholdChange={motion.setThreshold}
-      onSelectVideo={motion.selectVideo}
-      onStart={motion.start}
-      onStop={motion.stop}
-    />
-
-    <section className="workspace">
-      <VideoStage
-        videoRef={motion.videoRef}
-        sourceRef={motion.sourceRef}
-        outputRef={motion.outputRef}
-        roi={motion.roi}
+  return (
+    <main>
+      <AppHeader
+        running={motion.running}
+        status={motion.status}
       />
 
-      <TelemetryPanel
-        fps={motion.fps}
-        latency={motion.latency}
-        motion={motion.motion}
-        events={motion.events}
+      <Toolbar
+        running={motion.running}
+        threshold={motion.threshold}
+        onThresholdChange={motion.setThreshold}
+        onSelectVideo={motion.selectVideo}
+        onStart={motion.start}
+        onStop={motion.stop}
       />
-    </section>
-    <footer>
-      LOCAL-FIRST VIDEO ANALYTICS<span>WASM SIMD · PTHREADS · ROI DETECTION</span>
-    </footer>
-  </main>;
+
+      <section className="workspace">
+        <VideoStage
+          videoRef={motion.videoRef}
+          sourceRef={motion.sourceRef}
+          outputRef={motion.outputRef}
+          roi={motion.roi}
+        />
+
+        <TelemetryPanel
+          fps={motion.fps}
+          latency={motion.latency}
+          motion={motion.motion}
+          events={motion.events}
+        />
+      </section>
+    </main>
+  );
 }
