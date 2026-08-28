@@ -3,6 +3,7 @@ import { processWithWasm, resetWasm } from '../engine/wasmMotion';
 import { clampRoi, countPixelsInRoi, type ROI } from '../features/roi';
 import { MotionEventTracker, type MotionEvent } from '../features/motionEvents';
 import { detectMovingObjects, type MovingObject } from '../features/movingObjects';
+import { getProcessingSize, resolutionPresets, type ResolutionPreset } from '../features/processingResolution';
 
 const defaultRoi: ROI = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
 const minThreshold = 1;
@@ -12,14 +13,8 @@ const minObjectArea = 40;
 const frameBudgetMs = 33.3;
 const downshiftHoldWindows = 2;
 const upshiftHoldWindows = 5;
-export type ResolutionPreset = '720p' | '1080p' | '2k' | '4k';
-const resolutionOrder: ResolutionPreset[] = ['720p', '1080p', '2k', '4k'];
-
-function getProcessingSize(videoWidth: number, videoHeight: number, preset: ResolutionPreset) {
-  const targetHeight = { '720p': 720, '1080p': 1080, '2k': 1440, '4k': 2160 }[preset];
-  const scale = Math.min(1, targetHeight / videoHeight);
-  return { width: Math.max(1, Math.round(videoWidth * scale)), height: Math.max(1, Math.round(videoHeight * scale)) };
-}
+export type { ResolutionPreset } from '../features/processingResolution';
+const resolutionOrder = resolutionPresets.map((item) => item.value);
 
 type BrowserStatus = {
   crossOriginIsolated: boolean;
@@ -58,9 +53,12 @@ export function useMotionAnalysis() {
   const videoObjectUrlRef = useRef<string | null>(null);
   const runningRef = useRef(false);
   const runIdRef = useRef(0);
+  const frameRequestRef = useRef<number | null>(null);
+  const sourceRequestRef = useRef(0);
   const tracker = useRef(new MotionEventTracker());
 
   const [status, setStatus] = useState('No video selected');
+  const [sourceReady, setSourceReady] = useState(false);
   const [running, setRunning] = useState(false);
   const [threshold, setThreshold] = useState(30);
   const [resolutionPreset, setResolutionPreset] = useState<ResolutionPreset>('1080p');
@@ -82,6 +80,7 @@ export function useMotionAnalysis() {
   const [endToEndLatency, setEndToEndLatency] = useState(0);
   const [p95, setP95] = useState(0);
   const [p99, setP99] = useState(0);
+  const [droppedFrames, setDroppedFrames] = useState(0);
   const [motion, setMotion] = useState(0);
   const [events, setEvents] = useState<MotionEvent[]>([]);
   const [movingObjects, setMovingObjects] = useState<MovingObject[]>([]);
@@ -155,37 +154,86 @@ export function useMotionAnalysis() {
   }
 
   useEffect(() => () => {
-    // Stop pending frame work and release the browser-owned video URL.
-    runningRef.current = false;
-    runIdRef.current++;
+    stopAnalysis();
+    sourceRequestRef.current++;
     if (videoObjectUrlRef.current) {
       URL.revokeObjectURL(videoObjectUrlRef.current);
       videoObjectUrlRef.current = null;
     }
   }, []);
 
+  function stopAnalysis(statusText?: string) {
+    runningRef.current = false;
+    runIdRef.current++;
+    if (frameRequestRef.current !== null) {
+      cancelAnimationFrame(frameRequestRef.current);
+      frameRequestRef.current = null;
+    }
+    videoRef.current?.pause();
+    setRunning(false);
+    if (statusText) setStatus(statusText);
+  }
+
   async function selectVideo(file?: File) {
     if (!file || !videoRef.current) return;
+
+    const requestId = ++sourceRequestRef.current;
+    stopAnalysis();
+    setSourceReady(false);
+    setStatus('Loading video metadata');
+
+    const video = videoRef.current;
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
 
     // A new video starts a fresh timeline; restarting same video preserves it.
     tracker.current.reset();
     setEvents([]);
     setMovingObjects([]);
+    setProcessingSize({ width: 0, height: 0 });
+    setMotion(0);
+    setFps(0);
+    setWasmLatency(0);
+    setEndToEndLatency(0);
+    setP95(0);
+    setP99(0);
+    setDroppedFrames(0);
     if (videoObjectUrlRef.current) {
       URL.revokeObjectURL(videoObjectUrlRef.current);
+      videoObjectUrlRef.current = null;
     }
 
     const videoObjectUrl = URL.createObjectURL(file);
     videoObjectUrlRef.current = videoObjectUrl;
-    videoRef.current.src = videoObjectUrl;
-    await videoRef.current.play().catch(() => undefined);
-    setStatus('Video ready');
+    try {
+      const metadataPromise = new Promise<void>((resolve, reject) => {
+        const onLoaded = () => { cleanup(); resolve(); };
+        const onError = () => { cleanup(); reject(new Error('Unable to load selected video.')); };
+        const cleanup = () => {
+          video.removeEventListener('loadedmetadata', onLoaded);
+          video.removeEventListener('error', onError);
+        };
+        video.addEventListener('loadedmetadata', onLoaded, { once: true });
+        video.addEventListener('error', onError, { once: true });
+      });
+      video.src = videoObjectUrl;
+      video.load();
+      await metadataPromise;
+      if (requestId !== sourceRequestRef.current) return;
+      if (!video.videoWidth || !video.videoHeight) throw new Error('Video has no usable dimensions.');
+      setSourceReady(true);
+      setStatus('Video ready');
+    } catch (error) {
+      if (requestId !== sourceRequestRef.current) return;
+      setStatus(error instanceof Error ? error.message : 'Unable to load selected video.');
+    }
   }
 
   async function start() {
     if (runningRef.current) return;
 
-    if (!videoRef.current?.src) {
+    if (!sourceReady || !videoRef.current?.src) {
       setStatus('Select a video first');
       return;
     }
@@ -195,9 +243,13 @@ export function useMotionAnalysis() {
 
     // Stop can pause the video, so every new analysis run must resume playback.
     try {
+      setStatus('Preparing motion engine');
+      await resetWasm();
+      if (runId !== runIdRef.current) return;
       await video.play();
     } catch {
-      setStatus('Unable to play video');
+      stopAnalysis('Unable to start motion engine or play video');
+      setSourceReady(false);
       return;
     }
 
@@ -206,13 +258,14 @@ export function useMotionAnalysis() {
     setRunning(true);
     runningRef.current = true;
 
-    // Reset WASM state before starting a fresh frame-processing session.
-    await resetWasm();
-
-    const source = sourceRef.current!;
-    const output = outputRef.current!;
-    const ctx = source.getContext('2d', { willReadFrequently: true })!;
-    const out = output.getContext('2d')!;
+    const source = sourceRef.current;
+    const output = outputRef.current;
+    const ctx = source?.getContext('2d', { willReadFrequently: true });
+    const out = output?.getContext('2d');
+    if (!source || !output || !ctx || !out) {
+      stopAnalysis('Canvas is unavailable');
+      return;
+    }
 
     const size = getProcessingSize(video.videoWidth, video.videoHeight, resolutionPresetRef.current);
     effectiveResolutionRef.current = resolutionPresetRef.current;
@@ -224,6 +277,7 @@ export function useMotionAnalysis() {
 
     let last = performance.now();
     let frames = 0;
+    let lastDroppedFrames = 0;
     latencySamplesRef.current = [];
     setP95(0);
     setP99(0);
@@ -232,27 +286,27 @@ export function useMotionAnalysis() {
       if (!runningRef.current || runId !== runIdRef.current) return;
 
       // Hidden source canvas provides pixels; output canvas displays processed data.
-      ctx.drawImage(video, 0, 0, source.width, source.height);
-      const frameStarted = performance.now();
-      const image = ctx.getImageData(0, 0, source.width, source.height);
-      const wasmStarted = performance.now();
-      const result = await processWithWasm(image, thresholdRef.current);
+      try {
+        const frameStarted = performance.now();
+        ctx.drawImage(video, 0, 0, source.width, source.height);
+        const image = ctx.getImageData(0, 0, source.width, source.height);
+        const wasmStarted = performance.now();
+        const result = await processWithWasm(image, thresholdRef.current);
       if (!runningRef.current || runId !== runIdRef.current) return;
       const nextWasmLatency = performance.now() - wasmStarted;
 
       out.putImageData(result.processedData, 0, 0);
+      // Normalize detected pixels against selected ROI area.
+      const currentRoi = roiRef.current;
+      setMovingObjects(detectMovingObjects(result.processedData, currentRoi, minObjectArea));
+      const roiPixels = Math.max(1, currentRoi.width * currentRoi.height * image.width * image.height);
+      const ratio = countPixelsInRoi(result.processedData, currentRoi) / roiPixels;
       const nextEndToEndLatency = performance.now() - frameStarted;
       const samples = latencySamplesRef.current;
       samples.push(nextEndToEndLatency);
       if (samples.length > maxLatencySamples) samples.shift();
       setP95(percentile(samples, 0.95));
       setP99(percentile(samples, 0.99));
-
-      // Normalize detected pixels against selected ROI area.
-      const currentRoi = roiRef.current;
-      setMovingObjects(detectMovingObjects(result.processedData, currentRoi, minObjectArea));
-      const roiPixels = Math.max(1, currentRoi.width * currentRoi.height * image.width * image.height);
-      const ratio = countPixelsInRoi(result.processedData, currentRoi) / roiPixels;
       const event = tracker.current.update(video.currentTime, ratio, 0.02, nextWasmLatency, nextEndToEndLatency);
 
       // Tracker turns continuous motion into discrete timeline events.
@@ -266,20 +320,29 @@ export function useMotionAnalysis() {
       const now = performance.now();
       // Report FPS over one-second windows to avoid noisy per-frame values.
       if (now - last >= 1000) {
-        setFps((frames * 1000) / (now - last));
+        const windowFps = (frames * 1000) / (now - last);
+        setFps(windowFps);
+        const quality = video.getVideoPlaybackQuality?.();
+        const totalDroppedFrames = quality?.droppedVideoFrames ?? lastDroppedFrames;
+        const windowDroppedFrames = Math.max(0, totalDroppedFrames - lastDroppedFrames);
+        lastDroppedFrames = totalDroppedFrames;
+        setDroppedFrames((current) => current + windowDroppedFrames);
         if (adaptiveEnabledRef.current && samples.length > 0) {
           const currentP95 = percentile(samples, 0.95);
           const maxIndex = resolutionOrder.indexOf(resolutionPresetRef.current);
           const currentIndex = resolutionOrder.indexOf(effectiveResolutionRef.current);
           let nextPreset = effectiveResolutionRef.current;
-          if (currentP95 > adaptiveAlphaRef.current * frameBudgetMs) {
+          const targetFps = 30;
+          const overloaded = currentP95 > adaptiveAlphaRef.current * frameBudgetMs || windowFps < targetFps * 0.85 || windowDroppedFrames > 0;
+          const healthy = currentP95 < adaptiveBetaRef.current * frameBudgetMs && windowFps >= targetFps * 0.95 && windowDroppedFrames === 0;
+          if (overloaded) {
             slowWindowsRef.current++;
             fastWindowsRef.current = 0;
             if (slowWindowsRef.current >= downshiftHoldWindows && currentIndex > 0) {
               nextPreset = resolutionOrder[currentIndex - 1];
               slowWindowsRef.current = 0;
             }
-          } else if (currentP95 < adaptiveBetaRef.current * frameBudgetMs) {
+          } else if (healthy) {
             fastWindowsRef.current++;
             slowWindowsRef.current = 0;
             if (fastWindowsRef.current >= upshiftHoldWindows && currentIndex < maxIndex) {
@@ -307,18 +370,17 @@ export function useMotionAnalysis() {
         last = now;
       }
 
-      requestAnimationFrame(() => void loop());
+        frameRequestRef.current = requestAnimationFrame(() => void loop());
+      } catch (error) {
+        if (runningRef.current && runId === runIdRef.current) stopAnalysis(error instanceof Error ? error.message : 'Frame processing failed');
+      }
     };
 
     void loop();
   }
 
   function stop() {
-    runningRef.current = false;
-    runIdRef.current++;
-    setRunning(false);
-    videoRef.current?.pause();
-    setStatus('Stopped');
+    stopAnalysis('Stopped');
   }
 
   return {
@@ -327,6 +389,7 @@ export function useMotionAnalysis() {
     outputRef,
     status,
     running,
+    sourceReady,
     threshold,
     resolutionPreset,
     setResolutionPreset: updateResolutionPreset,
@@ -346,6 +409,7 @@ export function useMotionAnalysis() {
     endToEndLatency,
     p95,
     p99,
+    droppedFrames,
     motion,
     events,
     movingObjects,

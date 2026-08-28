@@ -1,6 +1,6 @@
 import type { MotionResult, WasmModule } from './motionTypes';
 
-declare global { interface Window { Module?: Partial<WasmModule> & { onRuntimeInitialized?: () => void }; } }
+declare global { interface Window { Module?: Partial<WasmModule> & { onRuntimeInitialized?: () => void; onAbort?: (reason?: unknown) => void }; } }
 
 let modulePromise: Promise<WasmModule> | null = null;
 
@@ -8,9 +8,17 @@ export function initWasm(): Promise<WasmModule> {
   if (modulePromise) return modulePromise;
   modulePromise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    window.Module = { onRuntimeInitialized: () => resolve(window.Module as WasmModule) };
+    const fail = (error: Error) => {
+      modulePromise = null;
+      script.remove();
+      reject(error);
+    };
+    window.Module = {
+      onRuntimeInitialized: () => resolve(window.Module as WasmModule),
+      onAbort: (reason?: unknown) => fail(new Error(`WASM runtime aborted${reason ? `: ${String(reason)}` : ''}`)),
+    };
     script.src = '/wasm/motion_wasm.js';
-    script.onerror = () => reject(new Error('WASM has not been built. Run npm run build:wasm.'));
+    script.onerror = () => fail(new Error('WASM has not been built. Run npm run build:wasm.'));
     document.head.appendChild(script);
   });
   return modulePromise;

@@ -18,45 +18,28 @@ export default function App() {
       <section className="flex flex-row items-start gap-5 max-[800px]:flex-col">
         <div className="w-full flex-1">
           <VideoStage
-            videoRef={motion.videoRef}
-            sourceRef={motion.sourceRef}
-            outputRef={motion.outputRef}
-            roi={motion.roi}
-            onRoiChange={motion.setRoi}
-            movingObjects={motion.movingObjects}
+            media={{ videoRef: motion.videoRef, sourceRef: motion.sourceRef, outputRef: motion.outputRef }}
+            overlay={{ roi: motion.roi, onRoiChange: motion.setRoi, movingObjects: motion.movingObjects }}
           />
         </div>
 
         <div className="w-full flex-1">
           <Toolbar
-            running={motion.running}
-            threshold={motion.threshold}
-            onThresholdChange={motion.setThreshold}
-            onSelectVideo={motion.selectVideo}
-            onStart={motion.start}
-            onStop={motion.stop}
-            resolutionPreset={motion.resolutionPreset}
-            onResolutionChange={motion.setResolutionPreset}
-            adaptiveEnabled={motion.adaptiveEnabled}
-            adaptiveAlpha={motion.adaptiveAlpha}
-            adaptiveBeta={motion.adaptiveBeta}
-            onAdaptiveEnabledChange={motion.setAdaptiveEnabled}
-            onAdaptiveAlphaChange={motion.setAdaptiveAlpha}
-            onAdaptiveBetaChange={motion.setAdaptiveBeta}
+            source={{
+              running: motion.running,
+              ready: motion.sourceReady,
+              selectVideo: motion.selectVideo,
+              start: motion.start,
+              stop: motion.stop
+            }}
+            processing={{ threshold: motion.threshold, resolutionPreset: motion.resolutionPreset, effectiveResolutionPreset: motion.effectiveResolutionPreset, adaptiveEnabled: motion.adaptiveEnabled, onThresholdChange: motion.setThreshold, onResolutionChange: motion.setResolutionPreset }}
+            adaptive={{ enabled: motion.adaptiveEnabled, alpha: motion.adaptiveAlpha, beta: motion.adaptiveBeta, onEnabledChange: motion.setAdaptiveEnabled, onAlphaChange: motion.setAdaptiveAlpha, onBetaChange: motion.setAdaptiveBeta }}
           />
 
           <TelemetryPanel
-            fps={motion.fps}
-            wasmLatency={motion.wasmLatency}
-            endToEndLatency={motion.endToEndLatency}
-            p95={motion.p95}
-            p99={motion.p99}
-            motion={motion.motion}
-            browserStatus={motion.browserStatus}
-            runtimeStatus={motion.runtimeStatus}
-            processingSize={motion.processingSize}
-            adaptiveEnabled={motion.adaptiveEnabled}
-            effectiveResolutionPreset={motion.effectiveResolutionPreset}
+            metrics={{ fps: motion.fps, wasmLatency: motion.wasmLatency, endToEndLatency: motion.endToEndLatency, p95: motion.p95, p99: motion.p99, droppedFrames: motion.droppedFrames, motion: motion.motion }}
+            quality={{ processingSize: motion.processingSize, adaptiveEnabled: motion.adaptiveEnabled, effectiveResolutionPreset: motion.effectiveResolutionPreset }}
+            pipeline={{ browserStatus: motion.browserStatus, runtimeStatus: motion.runtimeStatus }}
           />
         </div>
       </section>

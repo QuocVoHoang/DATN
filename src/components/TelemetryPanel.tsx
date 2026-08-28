@@ -19,28 +19,24 @@ type RuntimeStatus = {
 };
 
 type TelemetryPanelProps = {
-  fps: number;
-  wasmLatency: number;
-  endToEndLatency: number;
-  p95: number;
-  p99: number;
-  motion: number;
-  browserStatus: BrowserStatus;
-  runtimeStatus: RuntimeStatus;
-  processingSize: { width: number; height: number };
-  adaptiveEnabled: boolean;
-  effectiveResolutionPreset: string;
+  metrics: { fps: number; wasmLatency: number; endToEndLatency: number; p95: number; p99: number; droppedFrames: number; motion: number };
+  quality: { processingSize: { width: number; height: number }; adaptiveEnabled: boolean; effectiveResolutionPreset: string };
+  pipeline: { browserStatus: BrowserStatus; runtimeStatus: RuntimeStatus };
 };
 
-export function TelemetryPanel({ fps, wasmLatency, endToEndLatency, p95, p99, motion, browserStatus, runtimeStatus, processingSize, adaptiveEnabled, effectiveResolutionPreset }: TelemetryPanelProps) {
+export function TelemetryPanel({ metrics, quality, pipeline }: TelemetryPanelProps) {
+  const { fps, wasmLatency, endToEndLatency, p95, p99, droppedFrames, motion } = metrics;
+  const { processingSize, adaptiveEnabled, effectiveResolutionPreset } = quality;
+  const { browserStatus, runtimeStatus } = pipeline;
   return <aside className="border border-[#d7e1dc] p-5">
     <div className="mb-4.5 font-mono text-[11px] tracking-[0.14em] text-[#587168]">LIVE TELEMETRY</div>
     <div className="grid grid-cols-2 gap-x-10 max-[600px]:grid-cols-2 max-[400px]:grid-cols-1">
       <Metric label="FPS" value={fps.toFixed(1)} unit="fps" />
       <Metric label="WASM latency" value={wasmLatency.toFixed(2)} unit="ms" />
-      {/* <Metric label="End-to-end latency" value={endToEndLatency.toFixed(2)} unit="ms" /> */}
+      <Metric label="End-to-end latency" value={endToEndLatency.toFixed(2)} unit="ms" />
       <Metric label="P95 latency" value={p95.toFixed(2)} unit="ms" />
       <Metric label="P99 latency" value={p99.toFixed(2)} unit="ms" />
+      <Metric label="Dropped frames" value={droppedFrames.toString()} unit="frames" />
       <Metric label="Motion in ROI" value={motion.toFixed(2)} unit="%" />
       <Metric label="Processing size" value={processingSize.width ? `${processingSize.width}x${processingSize.height}` : '-'} unit="px" />
       <Metric label="Adaptive quality" value={adaptiveEnabled ? 'ON' : 'OFF'} unit="" />

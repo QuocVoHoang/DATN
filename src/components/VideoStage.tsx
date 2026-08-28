@@ -3,15 +3,13 @@ import { moveRoi, resizeRoi, type ROI } from '../features/roi';
 import type { MovingObject } from '../features/movingObjects';
 
 type VideoStageProps = {
-  videoRef: RefObject<HTMLVideoElement | null>;
-  sourceRef: RefObject<HTMLCanvasElement | null>;
-  outputRef: RefObject<HTMLCanvasElement | null>;
-  roi: ROI;
-  onRoiChange: (roi: ROI) => void;
-  movingObjects: MovingObject[];
+  media: { videoRef: RefObject<HTMLVideoElement | null>; sourceRef: RefObject<HTMLCanvasElement | null>; outputRef: RefObject<HTMLCanvasElement | null> };
+  overlay: { roi: ROI; onRoiChange: (roi: ROI) => void; movingObjects: MovingObject[] };
 };
 
-export function VideoStage({ videoRef, sourceRef, outputRef, roi, onRoiChange, movingObjects }: VideoStageProps) {
+export function VideoStage({ media, overlay }: VideoStageProps) {
+  const { videoRef, sourceRef, outputRef } = media;
+  const { roi, onRoiChange, movingObjects } = overlay;
   const stageRef = useRef<HTMLDivElement>(null);
   const roiRef = useRef(roi);
   const interactionRef = useRef<{ mode: 'move' | 'resize'; pointerId: number; x: number; y: number } | null>(null);
@@ -46,7 +44,7 @@ export function VideoStage({ videoRef, sourceRef, outputRef, roi, onRoiChange, m
 
   return (
     <div ref={stageRef} className="relative grid w-200 place-items-center overflow-hidden bg-[#edf3ef]">
-      <video ref={videoRef} className="hidden" muted loop playsInline />
+      <video ref={videoRef} className="hidden" muted loop playsInline preload="metadata" />
       <canvas ref={outputRef} className="block h-auto w-full" />
       {movingObjects.map((object) => <div key={object.id} className="pointer-events-none absolute border border-[#f08c3a]" style={{ left: `${object.bbox.x * 100}%`, top: `${object.bbox.y * 100}%`, width: `${object.bbox.width * 100}%`, height: `${object.bbox.height * 100}%` }}>
         <span className="absolute -top-4 -left-px bg-[#f08c3a] px-1 font-mono text-[9px] text-white">#{object.id}</span>

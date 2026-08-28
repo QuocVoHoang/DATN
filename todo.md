@@ -1,6 +1,6 @@
 # MotionGuard Web TODO
 
-Updated: 2026-08-27
+Updated: 2026-08-28
 
 ## Research Questions
 
@@ -11,15 +11,15 @@ Updated: 2026-08-27
 
 ## Current Status
 
-- Done: React/Vite/TypeScript app, Tailwind, COOP/COEP headers.
-- Done: MP4 upload, hidden source canvas, output canvas, WASM bridge, detector reset.
+- Done: React/Vite/TypeScript app, Tailwind, COOP/COEP development headers.
+- Done: MP4 input, hidden Canvas capture, output Canvas render, WASM bridge, detector reset.
 - Done: C++ integer grayscale, separable blur, SIMD differencing, four pthread workers.
-- Done: Static ROI, threshold input, FPS/latency/motion telemetry, basic event timeline.
-- Missing: Camera input, editable ROI, robust threshold clamping.
-- Missing: P95/P99, dropped frames, memory, browser API status.
-- Missing: Connected components, bbox, centroid, intensity, tracking, richer event schema.
-- Missing: JSON/CSV export, adaptive quality, Worker/OffscreenCanvas comparison.
-- Missing: Benchmark harness, ground truth, accuracy metrics, automated tests.
+- Done: Editable normalized ROI and threshold state clamping.
+- Done: Binary-mask connected components, bbox, centroid, area, ROI filtering, and overlays.
+- Partial: FPS and latency telemetry; dropped frames, memory, budget status, and true whole-pipeline timing remain.
+- Partial: Basic global motion events; stable object tracking, hysteresis, and rich event metadata remain.
+- Partial: Resolution-based adaptive-quality prototype; benchmark validation and edge-case handling remain.
+- Missing: Camera input, JSON/CSV export, Worker/OffscreenCanvas comparison, benchmark harness, ground truth, accuracy metrics, and automated tests.
 
 ## Next Steps
 
@@ -28,6 +28,11 @@ Updated: 2026-08-27
 - [x] Clamp threshold in state to 1-255, not only through HTML input attributes.
 - [x] Revoke previous video object URL when selecting another file.
 - [x] Immediately apply threshold change.
+- [x] Stop active analysis before switching video sources.
+- [x] Reset WASM and processing dimensions when source changes.
+- [x] Handle video loading and WASM initialization failures.
+- [ ] Align threshold comparison with documented minimum-difference semantics.
+- [ ] Make video stage and timeline responsive below 800px.
 - [ ] Run `npm run build`.
 
 ### 2. Add Camera Input
@@ -43,31 +48,38 @@ Updated: 2026-08-27
 - [x] Keep ROI normalized as `{ x, y, width, height }`, clamped to 0-1.
 - [x] Add drag-to-move and resize handle in `VideoStage`.
 - [x] Keep ROI state/calculations in hook or `src/features/roi.ts`.
-- [x] Confirm motion percentage changes when ROI includes/excludes movement.
+- [ ] Confirm motion percentage changes when ROI includes/excludes movement.
 
 ### 4. Improve Telemetry
 
 - [x] Track bounded rolling frame-latency samples.
-- [x] Compute FPS, latest latency, P95, P99, dropped frames, and 33.3 ms budget status.
+- [x] Compute FPS, latest latency, P95, and P99.
+- [ ] Compute decoded-frame rate; dropped-frame count is now exposed when browser provides it.
+- [ ] Show 33.3 ms budget status based on whole-pipeline latency.
 - [x] Show `crossOriginIsolated`, `SharedArrayBuffer`, WebAssembly, camera, and OffscreenCanvas status.
-- [x] Show memory only when browser exposes a usable API.
+- [ ] Show memory only when browser exposes a usable API.
+- [x] Measure whole-pipeline latency through object detection and event updates.
 
 ### 5. Detect Moving Objects
 
 - [x] Keep WASM motion mask as baseline.
 - [x] Add TypeScript connected-components pass over mask for correctness first.
-- [x] Compute bbox, centroid, area, mean intensity, and max intensity.
+- [x] Compute bbox, centroid, and area.
+- [ ] Compute meaningful intensity from source-frame differences, not binary mask values.
 - [x] Filter noise by minimum area and ROI intersection.
 - [x] Render bbox and centroid overlays.
-- [x] Validate with simple/synthetic videos before optimization.
+- [ ] Validate with simple/synthetic videos before optimization.
 
 ### 6. Track Objects and Events
 
-- [x] Match blobs between frames by centroid distance and area similarity.
-- [x] Assign stable `trackId` values.
-- [x] Add hysteresis: N frames to start, M quiet frames to end.
-- [x] Extend events with `id`, `start`, `end`, `duration`, `bbox`, `centroid`, `area`, `peakRatio`, `roiId`, `trackId`, `meanIntensity`, and `maxIntensity`.
-- [x] Preserve required behavior: prepend events, preserve events across stop/start, reset on new video.
+- [ ] Match blobs between frames by centroid distance and area similarity.
+- [ ] Assign stable `trackId` values across frames.
+- [ ] Add hysteresis: N frames to start, M quiet frames to end.
+- [ ] Extend events with `id`, `start`, `end`, `duration`, `bbox`, `centroid`, `area`, `peakRatio`, `roiId`, `trackId`, `meanIntensity`, and `maxIntensity`.
+- [x] Prepend newly completed events to the event list.
+- [x] Preserve events across stop/start.
+- [x] Reset events when selecting a new video.
+- [ ] Preserve active tracks/events across adaptive-quality transitions.
 
 ### 7. Export Metadata
 
@@ -84,9 +96,13 @@ Updated: 2026-08-27
 
 ### 9. Add Adaptive Quality
 
-- [ ] Reduce scale or sample frames when rolling P95 exceeds 33.3 ms.
-- [ ] Restore quality gradually below budget.
-- [ ] Display current quality mode.
+- [x] Add adaptive resolution ladder from 360p through 4K.
+- [x] Reduce resolution after sustained rolling P95 budget violations.
+- [x] Restore resolution gradually after sustained low latency.
+- [x] Display current effective resolution.
+- [ ] Restore requested resolution when adaptive mode is disabled.
+- [ ] Normalize object-area thresholds across processing resolutions.
+- [ ] Preserve event continuity when changing processing resolution.
 - [ ] Compare fixed versus adaptive quality for RQ3.
 
 ### 10. Evaluate Worker Path
