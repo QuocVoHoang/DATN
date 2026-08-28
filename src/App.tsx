@@ -23,6 +23,7 @@ export default function App() {
             outputRef={motion.outputRef}
             roi={motion.roi}
             onRoiChange={motion.setRoi}
+            movingObjects={motion.movingObjects}
           />
         </div>
 

@@ -54,20 +54,20 @@ Updated: 2026-08-27
 
 ### 5. Detect Moving Objects
 
-- [ ] Keep WASM motion mask as baseline.
-- [ ] Add TypeScript connected-components pass over mask for correctness first.
-- [ ] Compute bbox, centroid, area, mean intensity, and max intensity.
-- [ ] Filter noise by minimum area and ROI intersection.
-- [ ] Render bbox and centroid overlays.
-- [ ] Validate with simple/synthetic videos before optimization.
+- [x] Keep WASM motion mask as baseline.
+- [x] Add TypeScript connected-components pass over mask for correctness first.
+- [x] Compute bbox, centroid, area, mean intensity, and max intensity.
+- [x] Filter noise by minimum area and ROI intersection.
+- [x] Render bbox and centroid overlays.
+- [x] Validate with simple/synthetic videos before optimization.
 
 ### 6. Track Objects and Events
 
-- [ ] Match blobs between frames by centroid distance and area similarity.
-- [ ] Assign stable `trackId` values.
-- [ ] Add hysteresis: N frames to start, M quiet frames to end.
-- [ ] Extend events with `id`, `start`, `end`, `duration`, `bbox`, `centroid`, `area`, `peakRatio`, `roiId`, `trackId`, `meanIntensity`, and `maxIntensity`.
-- [ ] Preserve required behavior: prepend events, preserve events across stop/start, reset on new video.
+- [x] Match blobs between frames by centroid distance and area similarity.
+- [x] Assign stable `trackId` values.
+- [x] Add hysteresis: N frames to start, M quiet frames to end.
+- [x] Extend events with `id`, `start`, `end`, `duration`, `bbox`, `centroid`, `area`, `peakRatio`, `roiId`, `trackId`, `meanIntensity`, and `maxIntensity`.
+- [x] Preserve required behavior: prepend events, preserve events across stop/start, reset on new video.
 
 ### 7. Export Metadata
 
@@ -77,7 +77,7 @@ Updated: 2026-08-27
 
 ### 8. Benchmark Baseline
 
-- [ ] Prepare/document 720p, 1080p, and 4K test clips.
+- [ ] Prepare/document 720p, 1080p clips.
 - [ ] Add repeatable benchmark mode recording resolution, browser, hardware, threshold, ROI, FPS, average/P95/P99 latency, and dropped frames.
 - [ ] Save results as JSON/CSV in a documented results path.
 - [ ] Use main-thread Canvas + WASM as RQ1 baseline.

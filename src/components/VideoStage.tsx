@@ -1,5 +1,6 @@
 import { useRef, type PointerEvent, type RefObject } from 'react';
 import { moveRoi, resizeRoi, type ROI } from '../features/roi';
+import type { MovingObject } from '../features/movingObjects';
 
 type VideoStageProps = {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -7,9 +8,10 @@ type VideoStageProps = {
   outputRef: RefObject<HTMLCanvasElement | null>;
   roi: ROI;
   onRoiChange: (roi: ROI) => void;
+  movingObjects: MovingObject[];
 };
 
-export function VideoStage({ videoRef, sourceRef, outputRef, roi, onRoiChange }: VideoStageProps) {
+export function VideoStage({ videoRef, sourceRef, outputRef, roi, onRoiChange, movingObjects }: VideoStageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const roiRef = useRef(roi);
   const interactionRef = useRef<{ mode: 'move' | 'resize'; pointerId: number; x: number; y: number } | null>(null);
@@ -46,6 +48,10 @@ export function VideoStage({ videoRef, sourceRef, outputRef, roi, onRoiChange }:
     <div ref={stageRef} className="relative grid w-200 place-items-center overflow-hidden bg-[#edf3ef]">
       <video ref={videoRef} className="hidden" muted loop playsInline />
       <canvas ref={outputRef} className="block h-auto w-full" />
+      {movingObjects.map((object) => <div key={object.id} className="pointer-events-none absolute border border-[#f08c3a]" style={{ left: `${object.bbox.x * 100}%`, top: `${object.bbox.y * 100}%`, width: `${object.bbox.width * 100}%`, height: `${object.bbox.height * 100}%` }}>
+        <span className="absolute -top-4 -left-px bg-[#f08c3a] px-1 font-mono text-[9px] text-white">#{object.id}</span>
+        <span className="absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#f08c3a]" style={{ left: `${((object.centroid.x - object.bbox.x) / object.bbox.width) * 100}%`, top: `${((object.centroid.y - object.bbox.y) / object.bbox.height) * 100}%` }} />
+      </div>)}
       <div 
         className="absolute cursor-move border border-dashed border-[#6ab94f] touch-none"
         style={{ left: `${roi.x * 100}%`, top: `${roi.y * 100}%`, width: `${roi.width * 100}%`, height: `${roi.height * 100}%` }}

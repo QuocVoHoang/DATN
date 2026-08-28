@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { processWithWasm, resetWasm } from '../engine/wasmMotion';
 import { clampRoi, countPixelsInRoi, type ROI } from '../features/roi';
 import { MotionEventTracker, type MotionEvent } from '../features/motionEvents';
+import { detectMovingObjects, type MovingObject } from '../features/movingObjects';
 
 const defaultRoi: ROI = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
 const minThreshold = 1;
 const maxThreshold = 255;
 const maxLatencySamples = 180;
+const minObjectArea = 40;
 
 type BrowserStatus = {
   crossOriginIsolated: boolean;
@@ -60,6 +62,7 @@ export function useMotionAnalysis() {
   const [p99, setP99] = useState(0);
   const [motion, setMotion] = useState(0);
   const [events, setEvents] = useState<MotionEvent[]>([]);
+  const [movingObjects, setMovingObjects] = useState<MovingObject[]>([]);
   const [browserStatus, setBrowserStatus] = useState<BrowserStatus>({
     crossOriginIsolated: false,
     sharedArrayBuffer: false,
@@ -116,6 +119,7 @@ export function useMotionAnalysis() {
     // A new video starts a fresh timeline; restarting same video preserves it.
     tracker.current.reset();
     setEvents([]);
+    setMovingObjects([]);
     if (videoObjectUrlRef.current) {
       URL.revokeObjectURL(videoObjectUrlRef.current);
     }
@@ -191,6 +195,7 @@ export function useMotionAnalysis() {
 
       // Normalize detected pixels against selected ROI area.
       const currentRoi = roiRef.current;
+      setMovingObjects(detectMovingObjects(result.processedData, currentRoi, minObjectArea));
       const roiPixels = Math.max(1, currentRoi.width * currentRoi.height * image.width * image.height);
       const ratio = countPixelsInRoi(result.processedData, currentRoi) / roiPixels;
       const event = tracker.current.update(video.currentTime, ratio, 0.02, nextWasmLatency, nextEndToEndLatency);
@@ -242,6 +247,7 @@ export function useMotionAnalysis() {
     p99,
     motion,
     events,
+    movingObjects,
     browserStatus,
     runtimeStatus,
     selectVideo,
