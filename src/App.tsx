@@ -35,6 +35,8 @@ export default function App() {
             onSelectVideo={motion.selectVideo}
             onStart={motion.start}
             onStop={motion.stop}
+            resolutionPreset={motion.resolutionPreset}
+            onResolutionChange={motion.setResolutionPreset}
           />
 
           <TelemetryPanel
@@ -46,6 +48,7 @@ export default function App() {
             motion={motion.motion}
             browserStatus={motion.browserStatus}
             runtimeStatus={motion.runtimeStatus}
+            processingSize={motion.processingSize}
           />
         </div>
       </section>

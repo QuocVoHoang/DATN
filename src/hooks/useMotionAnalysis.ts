@@ -9,6 +9,13 @@ const minThreshold = 1;
 const maxThreshold = 255;
 const maxLatencySamples = 180;
 const minObjectArea = 40;
+export type ResolutionPreset = 'native' | '720p' | '1080p' | '2k' | '4k';
+
+function getProcessingSize(videoWidth: number, videoHeight: number, preset: ResolutionPreset) {
+  const targetHeight = { native: videoHeight, '720p': 720, '1080p': 1080, '2k': 1440, '4k': 2160 }[preset];
+  const scale = Math.min(1, targetHeight / videoHeight);
+  return { width: Math.max(1, Math.round(videoWidth * scale)), height: Math.max(1, Math.round(videoHeight * scale)) };
+}
 
 type BrowserStatus = {
   crossOriginIsolated: boolean;
@@ -52,6 +59,9 @@ export function useMotionAnalysis() {
   const [status, setStatus] = useState('No video selected');
   const [running, setRunning] = useState(false);
   const [threshold, setThreshold] = useState(30);
+  const [resolutionPreset, setResolutionPreset] = useState<ResolutionPreset>('native');
+  const resolutionPresetRef = useRef(resolutionPreset);
+  const [processingSize, setProcessingSize] = useState({ width: 0, height: 0 });
   const thresholdRef = useRef(threshold);
   const [roi, setRoiState] = useState(defaultRoi);
   const roiRef = useRef(roi);
@@ -101,6 +111,11 @@ export function useMotionAnalysis() {
     const next = clampRoi(nextRoi);
     roiRef.current = next;
     setRoiState(next);
+  }
+
+  function updateResolutionPreset(next: ResolutionPreset) {
+    resolutionPresetRef.current = next;
+    setResolutionPreset(next);
   }
 
   useEffect(() => () => {
@@ -163,8 +178,10 @@ export function useMotionAnalysis() {
     const ctx = source.getContext('2d', { willReadFrequently: true })!;
     const out = output.getContext('2d')!;
 
-    source.width = output.width = video.videoWidth;
-    source.height = output.height = video.videoHeight;
+    const size = getProcessingSize(video.videoWidth, video.videoHeight, resolutionPresetRef.current);
+    source.width = output.width = size.width;
+    source.height = output.height = size.height;
+    setProcessingSize(size);
     setStatus('Analyzing');
 
     let last = performance.now();
@@ -237,6 +254,9 @@ export function useMotionAnalysis() {
     status,
     running,
     threshold,
+    resolutionPreset,
+    setResolutionPreset: updateResolutionPreset,
+    processingSize,
     setThreshold: updateThreshold,
     roi,
     setRoi,

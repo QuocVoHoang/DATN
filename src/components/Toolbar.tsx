@@ -1,3 +1,5 @@
+import type { ResolutionPreset } from '../hooks/useMotionAnalysis';
+
 type ToolbarProps = {
   running: boolean;
   threshold: number;
@@ -5,9 +7,11 @@ type ToolbarProps = {
   onSelectVideo: (file?: File) => void;
   onStart: () => void;
   onStop: () => void;
+  resolutionPreset: ResolutionPreset;
+  onResolutionChange: (value: ResolutionPreset) => void;
 };
 
-export function Toolbar({ running, threshold, onThresholdChange, onSelectVideo, onStart, onStop }: ToolbarProps) {
+export function Toolbar({ running, threshold, onThresholdChange, onSelectVideo, onStart, onStop, resolutionPreset, onResolutionChange }: ToolbarProps) {
   const actionClass = 'cursor-pointer rounded border border-[#70927f] px-[18px] py-3 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-35';
   return (
     <section className="flex flex-wrap items-center gap-3 py-5">
@@ -35,6 +39,16 @@ export function Toolbar({ running, threshold, onThresholdChange, onSelectVideo, 
         Stop
       </button>
       <label className="ml-auto font-mono text-xs text-[#60736c] max-sm:ml-0">
+        Processing resolution
+        <select className="ml-2 border border-[#bdccc5] bg-white p-2.5 text-[#18231f]" value={resolutionPreset} onChange={(e) => onResolutionChange(e.target.value as ResolutionPreset)} disabled={running}>
+          <option value="native">Native</option>
+          <option value="720p">720p</option>
+          <option value="1080p">1080p</option>
+          <option value="2k">2K</option>
+          <option value="4k">4K</option>
+        </select>
+      </label>
+      <label className="font-mono text-xs text-[#60736c]">
         Threshold
         <input
           className="ml-2 w-16.25 border border-[#bdccc5] bg-white p-2.5 text-[#18231f]"
