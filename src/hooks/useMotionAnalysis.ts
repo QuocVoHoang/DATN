@@ -9,10 +9,14 @@ const minThreshold = 1;
 const maxThreshold = 255;
 const maxLatencySamples = 180;
 const minObjectArea = 40;
-export type ResolutionPreset = 'native' | '720p' | '1080p' | '2k' | '4k';
+const frameBudgetMs = 33.3;
+const downshiftHoldWindows = 2;
+const upshiftHoldWindows = 5;
+export type ResolutionPreset = '720p' | '1080p' | '2k' | '4k';
+const resolutionOrder: ResolutionPreset[] = ['720p', '1080p', '2k', '4k'];
 
 function getProcessingSize(videoWidth: number, videoHeight: number, preset: ResolutionPreset) {
-  const targetHeight = { native: videoHeight, '720p': 720, '1080p': 1080, '2k': 1440, '4k': 2160 }[preset];
+  const targetHeight = { '720p': 720, '1080p': 1080, '2k': 1440, '4k': 2160 }[preset];
   const scale = Math.min(1, targetHeight / videoHeight);
   return { width: Math.max(1, Math.round(videoWidth * scale)), height: Math.max(1, Math.round(videoHeight * scale)) };
 }
@@ -59,9 +63,17 @@ export function useMotionAnalysis() {
   const [status, setStatus] = useState('No video selected');
   const [running, setRunning] = useState(false);
   const [threshold, setThreshold] = useState(30);
-  const [resolutionPreset, setResolutionPreset] = useState<ResolutionPreset>('native');
+  const [resolutionPreset, setResolutionPreset] = useState<ResolutionPreset>('1080p');
   const resolutionPresetRef = useRef(resolutionPreset);
   const [processingSize, setProcessingSize] = useState({ width: 0, height: 0 });
+  const [adaptiveEnabled, setAdaptiveEnabled] = useState(false);
+  const [adaptiveAlpha, setAdaptiveAlpha] = useState(1.1);
+  const [adaptiveBeta, setAdaptiveBeta] = useState(0.8);
+  const [effectiveResolutionPreset, setEffectiveResolutionPreset] = useState<ResolutionPreset>('1080p');
+  const adaptiveEnabledRef = useRef(false);
+  const adaptiveAlphaRef = useRef(adaptiveAlpha);
+  const adaptiveBetaRef = useRef(adaptiveBeta);
+  const effectiveResolutionRef = useRef(effectiveResolutionPreset);
   const thresholdRef = useRef(threshold);
   const [roi, setRoiState] = useState(defaultRoi);
   const roiRef = useRef(roi);
@@ -90,6 +102,8 @@ export function useMotionAnalysis() {
     pthreads: browserStatus.crossOriginIsolated && browserStatus.sharedArrayBuffer ? 'available' : 'unavailable',
   };
   const latencySamplesRef = useRef<number[]>([]);
+  const slowWindowsRef = useRef(0);
+  const fastWindowsRef = useRef(0);
 
   useEffect(() => {
     setBrowserStatus({
@@ -116,6 +130,28 @@ export function useMotionAnalysis() {
   function updateResolutionPreset(next: ResolutionPreset) {
     resolutionPresetRef.current = next;
     setResolutionPreset(next);
+  }
+
+  function updateAdaptiveEnabled(enabled: boolean) {
+    adaptiveEnabledRef.current = enabled;
+    setAdaptiveEnabled(enabled);
+    slowWindowsRef.current = 0;
+    fastWindowsRef.current = 0;
+  }
+
+  function updateAdaptiveAlpha(value: number) {
+    const next = Math.min(2, Math.max(1, Number.isFinite(value) ? value : 1.1));
+    const beta = Math.min(adaptiveBetaRef.current, next - 0.05);
+    adaptiveAlphaRef.current = next;
+    adaptiveBetaRef.current = beta;
+    setAdaptiveAlpha(next);
+    setAdaptiveBeta(beta);
+  }
+
+  function updateAdaptiveBeta(value: number) {
+    const next = Math.min(1, Math.max(0.4, Math.min(Number.isFinite(value) ? value : 0.8, adaptiveAlphaRef.current - 0.05)));
+    adaptiveBetaRef.current = next;
+    setAdaptiveBeta(next);
   }
 
   useEffect(() => () => {
@@ -179,6 +215,8 @@ export function useMotionAnalysis() {
     const out = output.getContext('2d')!;
 
     const size = getProcessingSize(video.videoWidth, video.videoHeight, resolutionPresetRef.current);
+    effectiveResolutionRef.current = resolutionPresetRef.current;
+    setEffectiveResolutionPreset(resolutionPresetRef.current);
     source.width = output.width = size.width;
     source.height = output.height = size.height;
     setProcessingSize(size);
@@ -229,6 +267,42 @@ export function useMotionAnalysis() {
       // Report FPS over one-second windows to avoid noisy per-frame values.
       if (now - last >= 1000) {
         setFps((frames * 1000) / (now - last));
+        if (adaptiveEnabledRef.current && samples.length > 0) {
+          const currentP95 = percentile(samples, 0.95);
+          const maxIndex = resolutionOrder.indexOf(resolutionPresetRef.current);
+          const currentIndex = resolutionOrder.indexOf(effectiveResolutionRef.current);
+          let nextPreset = effectiveResolutionRef.current;
+          if (currentP95 > adaptiveAlphaRef.current * frameBudgetMs) {
+            slowWindowsRef.current++;
+            fastWindowsRef.current = 0;
+            if (slowWindowsRef.current >= downshiftHoldWindows && currentIndex > 0) {
+              nextPreset = resolutionOrder[currentIndex - 1];
+              slowWindowsRef.current = 0;
+            }
+          } else if (currentP95 < adaptiveBetaRef.current * frameBudgetMs) {
+            fastWindowsRef.current++;
+            slowWindowsRef.current = 0;
+            if (fastWindowsRef.current >= upshiftHoldWindows && currentIndex < maxIndex) {
+              nextPreset = resolutionOrder[currentIndex + 1];
+              fastWindowsRef.current = 0;
+            }
+          } else {
+            slowWindowsRef.current = 0;
+            fastWindowsRef.current = 0;
+          }
+          if (nextPreset !== effectiveResolutionRef.current) {
+            effectiveResolutionRef.current = nextPreset;
+            setEffectiveResolutionPreset(nextPreset);
+            const nextSize = getProcessingSize(video.videoWidth, video.videoHeight, nextPreset);
+            source.width = output.width = nextSize.width;
+            source.height = output.height = nextSize.height;
+            setProcessingSize(nextSize);
+            latencySamplesRef.current = [];
+            setP95(0);
+            setP99(0);
+            await resetWasm();
+          }
+        }
         frames = 0;
         last = now;
       }
@@ -257,6 +331,13 @@ export function useMotionAnalysis() {
     resolutionPreset,
     setResolutionPreset: updateResolutionPreset,
     processingSize,
+    adaptiveEnabled,
+    adaptiveAlpha,
+    adaptiveBeta,
+    effectiveResolutionPreset,
+    setAdaptiveEnabled: updateAdaptiveEnabled,
+    setAdaptiveAlpha: updateAdaptiveAlpha,
+    setAdaptiveBeta: updateAdaptiveBeta,
     setThreshold: updateThreshold,
     roi,
     setRoi,

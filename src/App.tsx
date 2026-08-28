@@ -37,6 +37,12 @@ export default function App() {
             onStop={motion.stop}
             resolutionPreset={motion.resolutionPreset}
             onResolutionChange={motion.setResolutionPreset}
+            adaptiveEnabled={motion.adaptiveEnabled}
+            adaptiveAlpha={motion.adaptiveAlpha}
+            adaptiveBeta={motion.adaptiveBeta}
+            onAdaptiveEnabledChange={motion.setAdaptiveEnabled}
+            onAdaptiveAlphaChange={motion.setAdaptiveAlpha}
+            onAdaptiveBetaChange={motion.setAdaptiveBeta}
           />
 
           <TelemetryPanel
@@ -49,6 +55,8 @@ export default function App() {
             browserStatus={motion.browserStatus}
             runtimeStatus={motion.runtimeStatus}
             processingSize={motion.processingSize}
+            adaptiveEnabled={motion.adaptiveEnabled}
+            effectiveResolutionPreset={motion.effectiveResolutionPreset}
           />
         </div>
       </section>
