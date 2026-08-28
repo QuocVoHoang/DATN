@@ -4,6 +4,7 @@ import { clampRoi, countPixelsInRoi, type ROI } from '../features/roi';
 import { MotionEventTracker, type MotionEvent } from '../features/motionEvents';
 import { detectMovingObjects, type MovingObject } from '../features/movingObjects';
 import { getProcessingSize, resolutionPresets, type ResolutionPreset } from '../features/processingResolution';
+import { createEventCsv, createEventJson, downloadTextFile } from '../features/eventExport';
 
 const defaultRoi: ROI = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
 const minThreshold = 1;
@@ -383,6 +384,9 @@ export function useMotionAnalysis() {
     stopAnalysis('Stopped');
   }
 
+  function exportEventsJson() { downloadTextFile(createEventJson(events), `motionguard-events-${Date.now()}.json`, 'application/json;charset=utf-8'); }
+  function exportEventsCsv() { downloadTextFile(createEventCsv(events), `motionguard-events-${Date.now()}.csv`, 'text/csv;charset=utf-8'); }
+
   return {
     videoRef,
     sourceRef,
@@ -418,5 +422,7 @@ export function useMotionAnalysis() {
     selectVideo,
     start,
     stop,
+    exportEventsJson,
+    exportEventsCsv,
   };
 }

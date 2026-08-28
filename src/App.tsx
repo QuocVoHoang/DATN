@@ -44,7 +44,7 @@ export default function App() {
         </div>
       </section>
       <div className="flex justify-center gap-5 max-[800px]:flex-col">
-        <EventTimeline events={motion.events} />
+        <EventTimeline events={motion.events} onExportJson={motion.exportEventsJson} onExportCsv={motion.exportEventsCsv} />
       </div>
     </main>
   );
