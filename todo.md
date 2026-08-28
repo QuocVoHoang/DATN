@@ -40,10 +40,10 @@ Updated: 2026-08-27
 
 ### 3. Add Editable ROI
 
-- [ ] Keep ROI normalized as `{ x, y, width, height }`, clamped to 0-1.
-- [ ] Add drag-to-move and resize handle in `VideoStage`.
-- [ ] Keep ROI state/calculations in hook or `src/features/roi.ts`.
-- [ ] Confirm motion percentage changes when ROI includes/excludes movement.
+- [x] Keep ROI normalized as `{ x, y, width, height }`, clamped to 0-1.
+- [x] Add drag-to-move and resize handle in `VideoStage`.
+- [x] Keep ROI state/calculations in hook or `src/features/roi.ts`.
+- [x] Confirm motion percentage changes when ROI includes/excludes movement.
 
 ### 4. Improve Telemetry
 

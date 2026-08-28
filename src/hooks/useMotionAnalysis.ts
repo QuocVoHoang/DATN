@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { processWithWasm, resetWasm } from '../engine/wasmMotion';
-import { countPixelsInRoi, type ROI } from '../features/roi';
+import { clampRoi, countPixelsInRoi, type ROI } from '../features/roi';
 import { MotionEventTracker, type MotionEvent } from '../features/motionEvents';
 
 const defaultRoi: ROI = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
@@ -25,7 +25,8 @@ export function useMotionAnalysis() {
   const [running, setRunning] = useState(false);
   const [threshold, setThreshold] = useState(30);
   const thresholdRef = useRef(threshold);
-  const [roi] = useState(defaultRoi);
+  const [roi, setRoiState] = useState(defaultRoi);
+  const roiRef = useRef(roi);
   const [fps, setFps] = useState(0);
   const [latency, setLatency] = useState(0);
   const [motion, setMotion] = useState(0);
@@ -35,6 +36,12 @@ export function useMotionAnalysis() {
     const nextThreshold = clampThreshold(value);
     thresholdRef.current = nextThreshold;
     setThreshold(nextThreshold);
+  }
+
+  function setRoi(nextRoi: ROI) {
+    const next = clampRoi(nextRoi);
+    roiRef.current = next;
+    setRoiState(next);
   }
 
   useEffect(() => () => {
@@ -117,8 +124,9 @@ export function useMotionAnalysis() {
       out.putImageData(result.processedData, 0, 0);
 
       // Normalize detected pixels against selected ROI area.
-      const roiPixels = Math.max(1, roi.width * roi.height * image.width * image.height);
-      const ratio = countPixelsInRoi(result.processedData, roi) / roiPixels;
+      const currentRoi = roiRef.current;
+      const roiPixels = Math.max(1, currentRoi.width * currentRoi.height * image.width * image.height);
+      const ratio = countPixelsInRoi(result.processedData, currentRoi) / roiPixels;
       const event = tracker.current.update(video.currentTime, ratio, 0.02);
 
       // Tracker turns continuous motion into discrete timeline events.
@@ -159,6 +167,7 @@ export function useMotionAnalysis() {
     threshold,
     setThreshold: updateThreshold,
     roi,
+    setRoi,
     fps,
     latency,
     motion,

@@ -22,6 +22,7 @@ export default function App() {
             sourceRef={motion.sourceRef}
             outputRef={motion.outputRef}
             roi={motion.roi}
+            onRoiChange={motion.setRoi}
           />
         </div>
 

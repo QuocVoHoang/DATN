@@ -1,18 +1,68 @@
-import type { RefObject } from 'react';
-import type { ROI } from '../features/roi';
+import { useRef, type PointerEvent, type RefObject } from 'react';
+import { moveRoi, resizeRoi, type ROI } from '../features/roi';
 
-type VideoStageProps = { videoRef: RefObject<HTMLVideoElement | null>; sourceRef: RefObject<HTMLCanvasElement | null>; outputRef: RefObject<HTMLCanvasElement | null>; roi: ROI };
+type VideoStageProps = {
+  videoRef: RefObject<HTMLVideoElement | null>;
+  sourceRef: RefObject<HTMLCanvasElement | null>;
+  outputRef: RefObject<HTMLCanvasElement | null>;
+  roi: ROI;
+  onRoiChange: (roi: ROI) => void;
+};
 
-export function VideoStage({ videoRef, sourceRef, outputRef, roi }: VideoStageProps) {
+export function VideoStage({ videoRef, sourceRef, outputRef, roi, onRoiChange }: VideoStageProps) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const roiRef = useRef(roi);
+  const interactionRef = useRef<{ mode: 'move' | 'resize'; pointerId: number; x: number; y: number } | null>(null);
+  roiRef.current = roi;
+
+  function beginInteraction(event: PointerEvent, mode: 'move' | 'resize') {
+    event.preventDefault();
+    event.stopPropagation();
+    interactionRef.current = { mode, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function updateInteraction(event: PointerEvent) {
+    const interaction = interactionRef.current;
+    const stage = stageRef.current;
+    if (!interaction || interaction.pointerId !== event.pointerId || !stage) return;
+
+    const rect = stage.getBoundingClientRect();
+    const dx = (event.clientX - interaction.x) / rect.width;
+    const dy = (event.clientY - interaction.y) / rect.height;
+    interaction.x = event.clientX;
+    interaction.y = event.clientY;
+    const currentRoi = roiRef.current;
+    const nextRoi = interaction.mode === 'move' ? moveRoi(currentRoi, dx, dy) : resizeRoi(currentRoi, dx, dy);
+    roiRef.current = nextRoi;
+    onRoiChange(nextRoi);
+  }
+
+  function endInteraction(event: PointerEvent) {
+    if (interactionRef.current?.pointerId === event.pointerId) interactionRef.current = null;
+  }
+
   return (
-    <div className="relative grid w-200 place-items-center overflow-hidden bg-[#edf3ef]">
+    <div ref={stageRef} className="relative grid w-200 place-items-center overflow-hidden bg-[#edf3ef]">
       <video ref={videoRef} className="hidden" muted loop playsInline />
       <canvas ref={outputRef} className="block h-auto w-full" />
       <div 
-        className="pointer-events-none absolute border border-dashed border-[#6ab94f]" 
+        className="absolute cursor-move border border-dashed border-[#6ab94f] touch-none"
         style={{ left: `${roi.x * 100}%`, top: `${roi.y * 100}%`, width: `${roi.width * 100}%`, height: `${roi.height * 100}%` }}
+        onPointerDown={(event) => beginInteraction(event, 'move')}
+        onPointerMove={updateInteraction}
+        onPointerUp={endInteraction}
+        onPointerCancel={endInteraction}
       >
         <span className="absolute -top-5.5 -left-px whitespace-nowrap font-mono text-[10px] text-[#4c8f36]">ROI · REGION OF INTEREST</span>
+        <span
+          aria-label="Resize ROI"
+          className="absolute -right-1.5 -bottom-1.5 h-3 w-3 cursor-se-resize bg-[#6ab94f]"
+          onPointerDown={(event) => beginInteraction(event, 'resize')}
+          onPointerMove={updateInteraction}
+          onPointerUp={endInteraction}
+          onPointerCancel={endInteraction}
+        />
       </div>
       <canvas ref={sourceRef} className="hidden" />
     </div>
