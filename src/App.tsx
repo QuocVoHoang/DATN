@@ -38,12 +38,17 @@ export default function App() {
 
           <TelemetryPanel
             fps={motion.fps}
-            latency={motion.latency}
+            wasmLatency={motion.wasmLatency}
+            endToEndLatency={motion.endToEndLatency}
+            p95={motion.p95}
+            p99={motion.p99}
             motion={motion.motion}
+            browserStatus={motion.browserStatus}
+            runtimeStatus={motion.runtimeStatus}
           />
         </div>
       </section>
-      <div className="justify-center flex">
+      <div className="flex justify-center gap-5 max-[800px]:flex-col">
         <EventTimeline events={motion.events} />
       </div>
     </main>

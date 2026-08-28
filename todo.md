@@ -47,10 +47,10 @@ Updated: 2026-08-27
 
 ### 4. Improve Telemetry
 
-- [ ] Track bounded rolling frame-latency samples.
-- [ ] Compute FPS, latest latency, P95, P99, dropped frames, and 33.3 ms budget status.
-- [ ] Show `crossOriginIsolated`, `SharedArrayBuffer`, WebAssembly, camera, and OffscreenCanvas status.
-- [ ] Show memory only when browser exposes a usable API.
+- [x] Track bounded rolling frame-latency samples.
+- [x] Compute FPS, latest latency, P95, P99, dropped frames, and 33.3 ms budget status.
+- [x] Show `crossOriginIsolated`, `SharedArrayBuffer`, WebAssembly, camera, and OffscreenCanvas status.
+- [x] Show memory only when browser exposes a usable API.
 
 ### 5. Detect Moving Objects
 

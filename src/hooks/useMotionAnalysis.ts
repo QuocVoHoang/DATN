@@ -6,6 +6,32 @@ import { MotionEventTracker, type MotionEvent } from '../features/motionEvents';
 const defaultRoi: ROI = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
 const minThreshold = 1;
 const maxThreshold = 255;
+const maxLatencySamples = 180;
+
+type BrowserStatus = {
+  crossOriginIsolated: boolean;
+  sharedArrayBuffer: boolean;
+  webAssembly: boolean;
+  camera: boolean;
+  offscreenCanvas: boolean;
+};
+
+type RuntimeStatus = {
+  wasmEngine: 'active' | 'inactive';
+  canvasCapture: 'active' | 'inactive';
+  canvasRender: 'active' | 'inactive';
+  roiFiltering: 'active' | 'inactive';
+  cameraInput: 'active' | 'inactive';
+  offscreenCanvasWorker: 'active' | 'inactive';
+  pthreads: 'available' | 'unavailable';
+};
+
+function percentile(samples: number[], p: number) {
+  if (samples.length === 0) return 0;
+  const sorted = [...samples].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1);
+  return sorted[Math.max(0, index)];
+}
 
 function clampThreshold(value: number) {
   if (!Number.isFinite(value)) return minThreshold;
@@ -28,9 +54,39 @@ export function useMotionAnalysis() {
   const [roi, setRoiState] = useState(defaultRoi);
   const roiRef = useRef(roi);
   const [fps, setFps] = useState(0);
-  const [latency, setLatency] = useState(0);
+  const [wasmLatency, setWasmLatency] = useState(0);
+  const [endToEndLatency, setEndToEndLatency] = useState(0);
+  const [p95, setP95] = useState(0);
+  const [p99, setP99] = useState(0);
   const [motion, setMotion] = useState(0);
   const [events, setEvents] = useState<MotionEvent[]>([]);
+  const [browserStatus, setBrowserStatus] = useState<BrowserStatus>({
+    crossOriginIsolated: false,
+    sharedArrayBuffer: false,
+    webAssembly: false,
+    camera: false,
+    offscreenCanvas: false,
+  });
+  const runtimeStatus: RuntimeStatus = {
+    wasmEngine: 'active',
+    canvasCapture: 'active',
+    canvasRender: 'active',
+    roiFiltering: 'active',
+    cameraInput: 'inactive',
+    offscreenCanvasWorker: 'inactive',
+    pthreads: browserStatus.crossOriginIsolated && browserStatus.sharedArrayBuffer ? 'available' : 'unavailable',
+  };
+  const latencySamplesRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    setBrowserStatus({
+      crossOriginIsolated: globalThis.crossOriginIsolated === true,
+      sharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
+      webAssembly: typeof WebAssembly !== 'undefined',
+      camera: Boolean(navigator.mediaDevices?.getUserMedia),
+      offscreenCanvas: typeof OffscreenCanvas !== 'undefined',
+    });
+  }, []);
 
   function updateThreshold(value: number) {
     const nextThreshold = clampThreshold(value);
@@ -109,31 +165,42 @@ export function useMotionAnalysis() {
 
     let last = performance.now();
     let frames = 0;
+    latencySamplesRef.current = [];
+    setP95(0);
+    setP99(0);
 
     const loop = async () => {
       if (!runningRef.current || runId !== runIdRef.current) return;
 
       // Hidden source canvas provides pixels; output canvas displays processed data.
       ctx.drawImage(video, 0, 0, source.width, source.height);
+      const frameStarted = performance.now();
       const image = ctx.getImageData(0, 0, source.width, source.height);
-      const started = performance.now();
+      const wasmStarted = performance.now();
       const result = await processWithWasm(image, thresholdRef.current);
       if (!runningRef.current || runId !== runIdRef.current) return;
-      const elapsed = performance.now() - started;
+      const nextWasmLatency = performance.now() - wasmStarted;
 
       out.putImageData(result.processedData, 0, 0);
+      const nextEndToEndLatency = performance.now() - frameStarted;
+      const samples = latencySamplesRef.current;
+      samples.push(nextEndToEndLatency);
+      if (samples.length > maxLatencySamples) samples.shift();
+      setP95(percentile(samples, 0.95));
+      setP99(percentile(samples, 0.99));
 
       // Normalize detected pixels against selected ROI area.
       const currentRoi = roiRef.current;
       const roiPixels = Math.max(1, currentRoi.width * currentRoi.height * image.width * image.height);
       const ratio = countPixelsInRoi(result.processedData, currentRoi) / roiPixels;
-      const event = tracker.current.update(video.currentTime, ratio, 0.02);
+      const event = tracker.current.update(video.currentTime, ratio, 0.02, nextWasmLatency, nextEndToEndLatency);
 
       // Tracker turns continuous motion into discrete timeline events.
       if (event) setEvents((current) => [event, ...current]);
 
       setMotion(Math.round(ratio * 10000) / 100);
-      setLatency(Math.round(elapsed * 100) / 100);
+      setWasmLatency(Math.round(nextWasmLatency * 100) / 100);
+      setEndToEndLatency(Math.round(nextEndToEndLatency * 100) / 100);
       frames++;
 
       const now = performance.now();
@@ -169,9 +236,14 @@ export function useMotionAnalysis() {
     roi,
     setRoi,
     fps,
-    latency,
+    wasmLatency,
+    endToEndLatency,
+    p95,
+    p99,
     motion,
     events,
+    browserStatus,
+    runtimeStatus,
     selectVideo,
     start,
     stop,
