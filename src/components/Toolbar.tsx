@@ -6,7 +6,7 @@ import { AdaptiveControls } from './toolbar/AdaptiveControls';
 type ToolbarProps = {
   source: { running: boolean; ready: boolean; selectVideo: (file?: File) => void; start: () => void; stop: () => void };
   processing: { threshold: number; resolutionPreset: ResolutionPreset; effectiveResolutionPreset: ResolutionPreset; adaptiveEnabled: boolean; onThresholdChange: (value: number) => void; onResolutionChange: (value: ResolutionPreset) => void };
-  adaptive: { enabled: boolean; alpha: number; beta: number; onEnabledChange: (value: boolean) => void; onAlphaChange: (value: number) => void; onBetaChange: (value: number) => void };
+  adaptive: { enabled: boolean; onEnabledChange: (value: boolean) => void };
 };
 
 export function Toolbar({ source, processing, adaptive }: ToolbarProps) {

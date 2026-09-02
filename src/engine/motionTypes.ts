@@ -6,5 +6,7 @@ export type WasmModule = {
   _processMotion(pointer: number, width: number, height: number, threshold: number): number;
   _resetMotionDetector(): void;
   _getChangedPixelCount(): number;
+  _setThreadCount(count: number): void;
+  _getThreadCount(): number;
   HEAPU8: Uint8Array;
 };

@@ -16,15 +16,17 @@ type RuntimeStatus = {
   cameraInput: 'active' | 'inactive';
   offscreenCanvasWorker: 'active' | 'inactive';
   pthreads: 'available' | 'unavailable';
+  activeThreads: number;
 };
 
 type TelemetryPanelProps = {
   metrics: { fps: number; wasmLatency: number; endToEndLatency: number; p95: number; p99: number; droppedFrames: number; motion: number };
   quality: { processingSize: { width: number; height: number }; adaptiveEnabled: boolean; effectiveResolutionPreset: string };
   pipeline: { browserStatus: BrowserStatus; runtimeStatus: RuntimeStatus };
+  onThreadCountChange: (count: number) => void;
 };
 
-export function TelemetryPanel({ metrics, quality, pipeline }: TelemetryPanelProps) {
+export function TelemetryPanel({ metrics, quality, pipeline, onThreadCountChange }: TelemetryPanelProps) {
   const { fps, wasmLatency, endToEndLatency, p95, p99, droppedFrames, motion } = metrics;
   const { processingSize, adaptiveEnabled, effectiveResolutionPreset } = quality;
   const { browserStatus, runtimeStatus } = pipeline;
@@ -32,14 +34,14 @@ export function TelemetryPanel({ metrics, quality, pipeline }: TelemetryPanelPro
     <div className="mb-4.5 font-mono text-[11px] tracking-[0.14em] text-[#587168]">LIVE TELEMETRY</div>
     <div className="grid grid-cols-2 gap-x-10 max-[600px]:grid-cols-2 max-[400px]:grid-cols-1">
       <Metric label="FPS" value={fps.toFixed(1)} unit="fps" />
+      <Metric label="Motion in ROI" value={motion.toFixed(2)} unit="%" />
       <Metric label="WASM latency" value={wasmLatency.toFixed(2)} unit="ms" />
       <Metric label="End-to-end latency" value={endToEndLatency.toFixed(2)} unit="ms" />
       <Metric label="P95 latency" value={p95.toFixed(2)} unit="ms" />
       <Metric label="P99 latency" value={p99.toFixed(2)} unit="ms" />
-      <Metric label="Dropped frames" value={droppedFrames.toString()} unit="frames" />
-      <Metric label="Motion in ROI" value={motion.toFixed(2)} unit="%" />
+      {/* <Metric label="Dropped frames" value={droppedFrames.toString()} unit="frames" /> */}
       <Metric label="Processing size" value={processingSize.width ? `${processingSize.width}x${processingSize.height}` : '-'} unit="px" />
-      <Metric label="Adaptive quality" value={adaptiveEnabled ? 'ON' : 'OFF'} unit="" />
+      {/* <Metric label="Adaptive quality" value={adaptiveEnabled ? 'ON' : 'OFF'} unit="" /> */}
       <Metric label="Effective resolution" value={effectiveResolutionPreset} unit="" />
     </div>
     <div className="mt-5 border-t border-[#d7e1dc] pt-4">
@@ -52,6 +54,12 @@ export function TelemetryPanel({ metrics, quality, pipeline }: TelemetryPanelPro
         <Status label="Camera input" value={runtimeStatus.cameraInput} enabled={runtimeStatus.cameraInput === 'active'} />
         <Status label="OffscreenCanvas worker" value={runtimeStatus.offscreenCanvasWorker} enabled={runtimeStatus.offscreenCanvasWorker === 'active'} />
         <Status label="Pthreads runtime" value={runtimeStatus.pthreads} enabled={runtimeStatus.pthreads === 'available'} />
+        <div className="flex items-center justify-between gap-2 text-[12px] text-[#60736c]">
+          <span>Active threads</span>
+          <select className="border border-[#bdccc5] bg-white px-1.5 py-1 text-[#18231f]" value={runtimeStatus.activeThreads} onChange={(event) => onThreadCountChange(Number(event.target.value))}>
+            {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{count}</option>)}
+          </select>
+        </div>
       </div>
     </div>
     <div className="mt-5 border-t border-[#d7e1dc] pt-4">

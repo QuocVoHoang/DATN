@@ -16,7 +16,8 @@
 
 namespace {
 
-constexpr int NUM_THREADS = 4;
+constexpr int MAX_THREADS = 8;
+int active_threads = 4;
 
 // Reusable buffers
 std::vector<uint8_t> prev_frame_gray;
@@ -27,17 +28,27 @@ std::vector<uint8_t> output_rgba;
 int last_changed_pixel_count = 0;
 
 // Per-thread pixel counts (avoid atomic contention)
-int thread_pixel_counts[NUM_THREADS] = {};
+int thread_pixel_counts[MAX_THREADS] = {};
 
 void ensure_buffers(int num_pixels, int rgba_length) {
     current_frame_gray.resize(num_pixels);
-    blurred_gray.assign(num_pixels, 0);
+    blurred_gray.resize(num_pixels);
     blur_temp.assign(num_pixels, 0);
     output_rgba.resize(rgba_length);
 
     if (!prev_frame_gray.empty() &&
         static_cast<int>(prev_frame_gray.size()) != num_pixels) {
         prev_frame_gray.clear();
+    }
+}
+
+void clear_blur_border(int width, int height, int radius) {
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            if (x < radius || x >= width - radius || y < radius || y >= height - radius) {
+                blurred_gray[y * width + x] = 0;
+            }
+        }
     }
 }
 
@@ -201,12 +212,12 @@ void diff_simd_worker(
 
 void parallel_grayscale(const uint8_t* rgba, uint8_t* gray, int num_pixels) {
     std::vector<std::thread> threads;
-    threads.reserve(NUM_THREADS);
-    const int chunk = num_pixels / NUM_THREADS;
+    threads.reserve(active_threads);
+    const int chunk = num_pixels / active_threads;
 
-    for (int t = 0; t < NUM_THREADS; t++) {
+    for (int t = 0; t < active_threads; t++) {
         const int s = t * chunk;
-        const int e = (t == NUM_THREADS - 1) ? num_pixels : s + chunk;
+        const int e = (t == active_threads - 1) ? num_pixels : s + chunk;
         threads.emplace_back(grayscale_worker, rgba, gray, s, e);
     }
     for (auto& th : threads) th.join();
@@ -216,12 +227,12 @@ void parallel_blur_h(
     const uint8_t* gray, uint16_t* temp, int width, int height, int radius
 ) {
     std::vector<std::thread> threads;
-    threads.reserve(NUM_THREADS);
-    const int rows_per = height / NUM_THREADS;
+    threads.reserve(active_threads);
+    const int rows_per = height / active_threads;
 
-    for (int t = 0; t < NUM_THREADS; t++) {
+    for (int t = 0; t < active_threads; t++) {
         const int sr = t * rows_per;
-        const int er = (t == NUM_THREADS - 1) ? height : sr + rows_per;
+        const int er = (t == active_threads - 1) ? height : sr + rows_per;
         threads.emplace_back(blur_h_worker, gray, temp, width, sr, er, radius);
     }
     for (auto& th : threads) th.join();
@@ -231,13 +242,13 @@ void parallel_blur_v(
     const uint16_t* temp, uint8_t* blurred, int width, int height, int radius
 ) {
     std::vector<std::thread> threads;
-    threads.reserve(NUM_THREADS);
+    threads.reserve(active_threads);
     const int usable = width - 2 * radius;
-    const int cols_per = usable / NUM_THREADS;
+    const int cols_per = usable / active_threads;
 
-    for (int t = 0; t < NUM_THREADS; t++) {
+    for (int t = 0; t < active_threads; t++) {
         const int sc = radius + t * cols_per;
-        const int ec = (t == NUM_THREADS - 1) ? width - radius : sc + cols_per;
+        const int ec = (t == active_threads - 1) ? width - radius : sc + cols_per;
         threads.emplace_back(blur_v_worker, temp, blurred, width, height, sc, ec, radius);
     }
     for (auto& th : threads) th.join();
@@ -248,21 +259,21 @@ void parallel_diff_simd(
     uint8_t* out_rgba, int num_pixels, int threshold
 ) {
     std::vector<std::thread> threads;
-    threads.reserve(NUM_THREADS);
+    threads.reserve(active_threads);
 
     // Align chunks to 16-byte boundaries for optimal SIMD
-    const int chunk = (num_pixels / NUM_THREADS / 16) * 16;
+    const int chunk = (num_pixels / active_threads / 16) * 16;
 
-    for (int t = 0; t < NUM_THREADS; t++) {
+    for (int t = 0; t < active_threads; t++) {
         const int s = t * chunk;
-        const int e = (t == NUM_THREADS - 1) ? num_pixels : s + chunk;
+        const int e = (t == active_threads - 1) ? num_pixels : s + chunk;
         threads.emplace_back(diff_simd_worker,
             current, previous, out_rgba, threshold, s, e, t);
     }
     for (auto& th : threads) th.join();
 
     last_changed_pixel_count = 0;
-    for (int t = 0; t < NUM_THREADS; t++) {
+    for (int t = 0; t < active_threads; t++) {
         last_changed_pixel_count += thread_pixel_counts[t];
     }
 }
@@ -312,6 +323,7 @@ uint8_t* processMotion(const uint8_t* rgba, int width, int height, int threshold
     // Step 2: Parallel separable blur (4 threads × 2 passes, O(1)/pixel)
     parallel_blur_h(current_frame_gray.data(), blur_temp.data(), width, height, radius);
     parallel_blur_v(blur_temp.data(), blurred_gray.data(), width, height, radius);
+    clear_blur_border(width, height, radius);
 
     // Step 3: Parallel SIMD diff + output (4 threads × 16 pixels/instruction)
     if (!prev_frame_gray.empty()) {
@@ -324,14 +336,26 @@ uint8_t* processMotion(const uint8_t* rgba, int width, int height, int threshold
         generate_black_frame(output_rgba.data(), rgba_length);
     }
 
-    // Save current blurred frame as reference for next frame (vector copy ~8.3MB)
-    prev_frame_gray = blurred_gray;
+    // Swap references instead of copying the full blurred frame.
+    prev_frame_gray.swap(blurred_gray);
+    // Reuse current frame buffer as next frame's blur destination.
+    blurred_gray.resize(num_pixels);
     return output_rgba.data();
 }
 
 EMSCRIPTEN_KEEPALIVE
 int getChangedPixelCount() {
     return last_changed_pixel_count;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void setThreadCount(int count) {
+    active_threads = count < 1 ? 1 : (count > MAX_THREADS ? MAX_THREADS : count);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int getThreadCount() {
+    return active_threads;
 }
 
 }

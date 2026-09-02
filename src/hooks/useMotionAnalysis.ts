@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { processWithWasm, resetWasm } from '../engine/wasmMotion';
+import { configureWasmThreads, processWithWasm, resetWasm } from '../engine/wasmMotion';
 import { clampRoi, countPixelsInRoi, type ROI } from '../features/roi';
 import { MotionEventTracker, type MotionEvent } from '../features/motionEvents';
 import { detectMovingObjects, type MovingObject } from '../features/movingObjects';
@@ -12,6 +12,8 @@ const maxThreshold = 255;
 const maxLatencySamples = 180;
 const minObjectArea = 40;
 const frameBudgetMs = 33.3;
+const adaptiveAlpha = 1.1;
+const adaptiveBeta = 0.8;
 const downshiftHoldWindows = 2;
 const upshiftHoldWindows = 5;
 export type { ResolutionPreset } from '../features/processingResolution';
@@ -33,6 +35,7 @@ type RuntimeStatus = {
   cameraInput: 'active' | 'inactive';
   offscreenCanvasWorker: 'active' | 'inactive';
   pthreads: 'available' | 'unavailable';
+  activeThreads: number;
 };
 
 function percentile(samples: number[], p: number) {
@@ -66,12 +69,8 @@ export function useMotionAnalysis() {
   const resolutionPresetRef = useRef(resolutionPreset);
   const [processingSize, setProcessingSize] = useState({ width: 0, height: 0 });
   const [adaptiveEnabled, setAdaptiveEnabled] = useState(false);
-  const [adaptiveAlpha, setAdaptiveAlpha] = useState(1.1);
-  const [adaptiveBeta, setAdaptiveBeta] = useState(0.8);
   const [effectiveResolutionPreset, setEffectiveResolutionPreset] = useState<ResolutionPreset>('1080p');
   const adaptiveEnabledRef = useRef(false);
-  const adaptiveAlphaRef = useRef(adaptiveAlpha);
-  const adaptiveBetaRef = useRef(adaptiveBeta);
   const effectiveResolutionRef = useRef(effectiveResolutionPreset);
   const thresholdRef = useRef(threshold);
   const [roi, setRoiState] = useState(defaultRoi);
@@ -82,6 +81,7 @@ export function useMotionAnalysis() {
   const [p95, setP95] = useState(0);
   const [p99, setP99] = useState(0);
   const [droppedFrames, setDroppedFrames] = useState(0);
+  const [activeThreads, setActiveThreads] = useState(1);
   const [motion, setMotion] = useState(0);
   const [events, setEvents] = useState<MotionEvent[]>([]);
   const [movingObjects, setMovingObjects] = useState<MovingObject[]>([]);
@@ -100,20 +100,38 @@ export function useMotionAnalysis() {
     cameraInput: 'inactive',
     offscreenCanvasWorker: 'inactive',
     pthreads: browserStatus.crossOriginIsolated && browserStatus.sharedArrayBuffer ? 'available' : 'unavailable',
+    activeThreads,
   };
   const latencySamplesRef = useRef<number[]>([]);
   const slowWindowsRef = useRef(0);
   const fastWindowsRef = useRef(0);
 
   useEffect(() => {
-    setBrowserStatus({
+    const nextStatus = {
       crossOriginIsolated: globalThis.crossOriginIsolated === true,
       sharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
       webAssembly: typeof WebAssembly !== 'undefined',
       camera: Boolean(navigator.mediaDevices?.getUserMedia),
       offscreenCanvas: typeof OffscreenCanvas !== 'undefined',
-    });
+    };
+    setBrowserStatus(nextStatus);
+    if (nextStatus.crossOriginIsolated && nextStatus.sharedArrayBuffer) {
+      const cores = navigator.hardwareConcurrency || 2;
+      const count = cores >= 8 ? 4 : cores >= 4 ? 2 : 1;
+      setActiveThreads(count);
+      void configureWasmThreads(count);
+    }
   }, []);
+
+  function updateThreadCount(value: number) {
+    const next = Math.max(1, Math.min(4, Math.floor(value)));
+    latencySamplesRef.current = [];
+    setP95(0);
+    setP99(0);
+    void configureWasmThreads(next).then(setActiveThreads).catch((error) => {
+      setStatus(error instanceof Error ? error.message : 'Unable to change WASM thread count');
+    });
+  }
 
   function updateThreshold(value: number) {
     const nextThreshold = clampThreshold(value);
@@ -137,21 +155,6 @@ export function useMotionAnalysis() {
     setAdaptiveEnabled(enabled);
     slowWindowsRef.current = 0;
     fastWindowsRef.current = 0;
-  }
-
-  function updateAdaptiveAlpha(value: number) {
-    const next = Math.min(2, Math.max(1, Number.isFinite(value) ? value : 1.1));
-    const beta = Math.min(adaptiveBetaRef.current, next - 0.05);
-    adaptiveAlphaRef.current = next;
-    adaptiveBetaRef.current = beta;
-    setAdaptiveAlpha(next);
-    setAdaptiveBeta(beta);
-  }
-
-  function updateAdaptiveBeta(value: number) {
-    const next = Math.min(1, Math.max(0.4, Math.min(Number.isFinite(value) ? value : 0.8, adaptiveAlphaRef.current - 0.05)));
-    adaptiveBetaRef.current = next;
-    setAdaptiveBeta(next);
   }
 
   useEffect(() => () => {
@@ -334,8 +337,8 @@ export function useMotionAnalysis() {
           const currentIndex = resolutionOrder.indexOf(effectiveResolutionRef.current);
           let nextPreset = effectiveResolutionRef.current;
           const targetFps = 30;
-          const overloaded = currentP95 > adaptiveAlphaRef.current * frameBudgetMs || windowFps < targetFps * 0.85 || windowDroppedFrames > 0;
-          const healthy = currentP95 < adaptiveBetaRef.current * frameBudgetMs && windowFps >= targetFps * 0.95 && windowDroppedFrames === 0;
+           const overloaded = currentP95 > adaptiveAlpha * frameBudgetMs || windowFps < targetFps * 0.85 || windowDroppedFrames > 0;
+           const healthy = currentP95 < adaptiveBeta * frameBudgetMs && windowFps >= targetFps * 0.95 && windowDroppedFrames === 0;
           if (overloaded) {
             slowWindowsRef.current++;
             fastWindowsRef.current = 0;
@@ -399,12 +402,8 @@ export function useMotionAnalysis() {
     setResolutionPreset: updateResolutionPreset,
     processingSize,
     adaptiveEnabled,
-    adaptiveAlpha,
-    adaptiveBeta,
     effectiveResolutionPreset,
     setAdaptiveEnabled: updateAdaptiveEnabled,
-    setAdaptiveAlpha: updateAdaptiveAlpha,
-    setAdaptiveBeta: updateAdaptiveBeta,
     setThreshold: updateThreshold,
     roi,
     setRoi,
@@ -419,6 +418,8 @@ export function useMotionAnalysis() {
     movingObjects,
     browserStatus,
     runtimeStatus,
+    activeThreads,
+    setThreadCount: updateThreadCount,
     selectVideo,
     start,
     stop,

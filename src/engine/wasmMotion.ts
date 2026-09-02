@@ -3,6 +3,8 @@ import type { MotionResult, WasmModule } from './motionTypes';
 declare global { interface Window { Module?: Partial<WasmModule> & { onRuntimeInitialized?: () => void; onAbort?: (reason?: unknown) => void }; } }
 
 let modulePromise: Promise<WasmModule> | null = null;
+let inputPointer = 0;
+let inputCapacity = 0;
 
 export function initWasm(): Promise<WasmModule> {
   if (modulePromise) return modulePromise;
@@ -27,13 +29,24 @@ export function initWasm(): Promise<WasmModule> {
 export async function processWithWasm(image: ImageData, threshold: number): Promise<MotionResult> {
   const module = await initWasm();
   const input = image.data;
-  const pointer = module._malloc(input.length);
-  try {
-    module.HEAPU8.set(input, pointer);
-    const outputPointer = module._processMotion(pointer, image.width, image.height, threshold);
-    const output = new Uint8ClampedArray(module.HEAPU8.buffer, outputPointer, input.length).slice();
-    return { processedData: new ImageData(output, image.width, image.height), changedPixels: module._getChangedPixelCount() };
-  } finally { module._free(pointer); }
+  if (input.length > inputCapacity) {
+    if (inputPointer) module._free(inputPointer);
+    inputPointer = module._malloc(input.length);
+    inputCapacity = input.length;
+  }
+  module.HEAPU8.set(input, inputPointer);
+  const outputPointer = module._processMotion(inputPointer, image.width, image.height, threshold);
+  const output = new Uint8ClampedArray(module.HEAPU8.buffer, outputPointer, input.length).slice();
+  return { processedData: new ImageData(output, image.width, image.height), changedPixels: module._getChangedPixelCount() };
 }
 
-export async function resetWasm(): Promise<void> { (await initWasm())._resetMotionDetector(); }
+export async function resetWasm(): Promise<void> {
+  const module = await initWasm();
+  module._resetMotionDetector();
+}
+
+export async function configureWasmThreads(count: number): Promise<number> {
+  const module = await initWasm();
+  module._setThreadCount(Math.max(1, Math.min(8, Math.floor(count))));
+  return module._getThreadCount();
+}

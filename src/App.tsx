@@ -33,13 +33,14 @@ export default function App() {
               stop: motion.stop
             }}
             processing={{ threshold: motion.threshold, resolutionPreset: motion.resolutionPreset, effectiveResolutionPreset: motion.effectiveResolutionPreset, adaptiveEnabled: motion.adaptiveEnabled, onThresholdChange: motion.setThreshold, onResolutionChange: motion.setResolutionPreset }}
-            adaptive={{ enabled: motion.adaptiveEnabled, alpha: motion.adaptiveAlpha, beta: motion.adaptiveBeta, onEnabledChange: motion.setAdaptiveEnabled, onAlphaChange: motion.setAdaptiveAlpha, onBetaChange: motion.setAdaptiveBeta }}
+             adaptive={{ enabled: motion.adaptiveEnabled, onEnabledChange: motion.setAdaptiveEnabled }}
           />
 
           <TelemetryPanel
             metrics={{ fps: motion.fps, wasmLatency: motion.wasmLatency, endToEndLatency: motion.endToEndLatency, p95: motion.p95, p99: motion.p99, droppedFrames: motion.droppedFrames, motion: motion.motion }}
             quality={{ processingSize: motion.processingSize, adaptiveEnabled: motion.adaptiveEnabled, effectiveResolutionPreset: motion.effectiveResolutionPreset }}
             pipeline={{ browserStatus: motion.browserStatus, runtimeStatus: motion.runtimeStatus }}
+            onThreadCountChange={motion.setThreadCount}
           />
         </div>
       </section>
