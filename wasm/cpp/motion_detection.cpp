@@ -1,23 +1,25 @@
-// motion_wasm_simd_mt.cpp — Scenario 4: SIMD + Multi-threaded motion detection
-//
-// Combines the best optimizations from both Scenario 2 (SIMD) and Scenario 3 (MT):
-// - From SIMD: integer grayscale (ALU), separable sliding window blur, SIMD 128-bit diff
-// - From MT: 4 threads parallelize each step (each thread handles 25% of the image)
-// Result: 4 workers × 16 pixels/SIMD instruction = most efficient processing
-//
-// Each thread processes a stripe/chunk using optimized algorithms + SIMD.
+// motion_detection.cpp — local SIMD motion detection engine.
+// Pipeline: integer grayscale, separable box blur, SIMD frame difference,
+// and an RGBA motion mask. Processing supports 1, 2, or 4 workers.
 
 #include <cstdint>
+#include <climits>
+#include <cstddef>
 #include <vector>
 #include <thread>
 
 #include <wasm_simd128.h>
 #include <emscripten/emscripten.h>
+#include <emscripten/heap.h>
 
 namespace {
 
-constexpr int MAX_THREADS = 8;
+constexpr int MAX_THREADS = 4;
 int active_threads = 4;
+int previous_width = 0;
+int previous_height = 0;
+bool has_previous_frame = false;
+int last_motion_error = 0;
 
 // Reusable buffers
 std::vector<uint8_t> prev_frame_gray;
@@ -173,7 +175,7 @@ void diff_simd_worker(
         );
 
         // Threshold comparison: 16 pixels at once
-        v128_t motion = wasm_u8x16_gt(abs_diff, thresh_vec);
+        v128_t motion = wasm_u8x16_ge(abs_diff, thresh_vec);
 
         // Count changed pixels via bitmask
         count += __builtin_popcount(wasm_i8x16_bitmask(motion));
@@ -195,7 +197,7 @@ void diff_simd_worker(
         const int diff = static_cast<int>(current[i]) > static_cast<int>(previous[i])
             ? current[i] - previous[i]
             : previous[i] - current[i];
-        const uint8_t val = diff > threshold ? 255 : 0;
+        const uint8_t val = diff >= threshold ? 255 : 0;
         if (val) count++;
 
         const int off = i * 4;
@@ -211,6 +213,7 @@ void diff_simd_worker(
 // ===== PARALLEL DISPATCH =====
 
 void parallel_grayscale(const uint8_t* rgba, uint8_t* gray, int num_pixels) {
+    if (active_threads == 1) { grayscale_worker(rgba, gray, 0, num_pixels); return; }
     std::vector<std::thread> threads;
     threads.reserve(active_threads);
     const int chunk = num_pixels / active_threads;
@@ -226,6 +229,7 @@ void parallel_grayscale(const uint8_t* rgba, uint8_t* gray, int num_pixels) {
 void parallel_blur_h(
     const uint8_t* gray, uint16_t* temp, int width, int height, int radius
 ) {
+    if (active_threads == 1) { blur_h_worker(gray, temp, width, 0, height, radius); return; }
     std::vector<std::thread> threads;
     threads.reserve(active_threads);
     const int rows_per = height / active_threads;
@@ -241,6 +245,7 @@ void parallel_blur_h(
 void parallel_blur_v(
     const uint16_t* temp, uint8_t* blurred, int width, int height, int radius
 ) {
+    if (active_threads == 1) { blur_v_worker(temp, blurred, width, height, radius, width - radius, radius); return; }
     std::vector<std::thread> threads;
     threads.reserve(active_threads);
     const int usable = width - 2 * radius;
@@ -258,6 +263,11 @@ void parallel_diff_simd(
     const uint8_t* current, const uint8_t* previous,
     uint8_t* out_rgba, int num_pixels, int threshold
 ) {
+    if (active_threads == 1) {
+        diff_simd_worker(current, previous, out_rgba, threshold, 0, num_pixels, 0);
+        last_changed_pixel_count = thread_pixel_counts[0];
+        return;
+    }
     std::vector<std::thread> threads;
     threads.reserve(active_threads);
 
@@ -307,13 +317,35 @@ void resetMotionDetector() {
     blur_temp.clear();
     output_rgba.clear();
     last_changed_pixel_count = 0;
+    previous_width = 0;
+    previous_height = 0;
+    has_previous_frame = false;
+    last_motion_error = 0;
 }
 
 EMSCRIPTEN_KEEPALIVE
+int getLastMotionError() { return last_motion_error; }
+
+EMSCRIPTEN_KEEPALIVE
 uint8_t* processMotion(const uint8_t* rgba, int width, int height, int threshold) {
-    const int num_pixels = width * height;
+    last_motion_error = 0;
+    if (!rgba) { last_motion_error = 1; last_changed_pixel_count = 0; return nullptr; }
+    if (width <= 0 || height <= 0) { last_motion_error = 2; last_changed_pixel_count = 0; return nullptr; }
+    if (threshold < 1 || threshold > 255) { last_motion_error = 3; last_changed_pixel_count = 0; return nullptr; }
+    const uint64_t pixel_count = static_cast<uint64_t>(width) * static_cast<uint64_t>(height);
+    if (pixel_count > static_cast<uint64_t>(INT32_MAX / 4) || pixel_count > static_cast<uint64_t>(SIZE_MAX / 4)) {
+        last_motion_error = 4; last_changed_pixel_count = 0; return nullptr;
+    }
+    const uint64_t rgba_size = pixel_count * 4;
+    const uint64_t input_address = reinterpret_cast<uintptr_t>(rgba);
+    const uint64_t heap_size = static_cast<uint64_t>(emscripten_get_heap_size());
+    if (input_address > heap_size || rgba_size > heap_size - input_address) {
+        last_motion_error = 5; last_changed_pixel_count = 0; return nullptr;
+    }
+    const int num_pixels = static_cast<int>(pixel_count);
     const int rgba_length = num_pixels * 4;
     const int radius = 3;
+    const bool dimensions_changed = width != previous_width || height != previous_height;
 
     ensure_buffers(num_pixels, rgba_length);
 
@@ -326,7 +358,7 @@ uint8_t* processMotion(const uint8_t* rgba, int width, int height, int threshold
     clear_blur_border(width, height, radius);
 
     // Step 3: Parallel SIMD diff + output (4 threads × 16 pixels/instruction)
-    if (!prev_frame_gray.empty()) {
+    if (has_previous_frame && !dimensions_changed) {
         parallel_diff_simd(
             blurred_gray.data(), prev_frame_gray.data(),
             output_rgba.data(), num_pixels, threshold
@@ -340,6 +372,9 @@ uint8_t* processMotion(const uint8_t* rgba, int width, int height, int threshold
     prev_frame_gray.swap(blurred_gray);
     // Reuse current frame buffer as next frame's blur destination.
     blurred_gray.resize(num_pixels);
+    previous_width = width;
+    previous_height = height;
+    has_previous_frame = true;
     return output_rgba.data();
 }
 

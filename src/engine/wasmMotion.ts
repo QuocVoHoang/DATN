@@ -1,10 +1,12 @@
-import type { MotionResult, WasmModule } from './motionTypes';
+import { motionErrorMessages, type MotionResult, type WasmModule } from './motionTypes';
 
 declare global { interface Window { Module?: Partial<WasmModule> & { onRuntimeInitialized?: () => void; onAbort?: (reason?: unknown) => void }; } }
 
 let modulePromise: Promise<WasmModule> | null = null;
 let inputPointer = 0;
 let inputCapacity = 0;
+
+const MAX_WASM_THREADS = 4;
 
 export function initWasm(): Promise<WasmModule> {
   if (modulePromise) return modulePromise;
@@ -29,13 +31,25 @@ export function initWasm(): Promise<WasmModule> {
 export async function processWithWasm(image: ImageData, threshold: number): Promise<MotionResult> {
   const module = await initWasm();
   const input = image.data;
+  if (!Number.isInteger(image.width) || !Number.isInteger(image.height) || image.width <= 0 || image.height <= 0 || input.length !== image.width * image.height * 4) {
+    throw new Error('Invalid image dimensions or RGBA data length.');
+  }
+  if (!Number.isInteger(threshold) || threshold < 1 || threshold > 255) {
+    throw new Error('Threshold must be an integer from 1 to 255.');
+  }
   if (input.length > inputCapacity) {
+    const nextPointer = module._malloc(input.length);
+    if (!nextPointer) throw new Error('Unable to allocate WASM input memory.');
     if (inputPointer) module._free(inputPointer);
-    inputPointer = module._malloc(input.length);
+    inputPointer = nextPointer;
     inputCapacity = input.length;
   }
   module.HEAPU8.set(input, inputPointer);
   const outputPointer = module._processMotion(inputPointer, image.width, image.height, threshold);
+  if (!outputPointer) {
+    const code = module._getLastMotionError();
+    throw new Error(motionErrorMessages[code] ?? 'Motion engine failed to process the frame.');
+  }
   const output = new Uint8ClampedArray(module.HEAPU8.buffer, outputPointer, input.length).slice();
   return { processedData: new ImageData(output, image.width, image.height), changedPixels: module._getChangedPixelCount() };
 }
@@ -47,6 +61,7 @@ export async function resetWasm(): Promise<void> {
 
 export async function configureWasmThreads(count: number): Promise<number> {
   const module = await initWasm();
-  module._setThreadCount(Math.max(1, Math.min(8, Math.floor(count))));
+  if (!Number.isFinite(count)) throw new Error('Thread count must be finite.');
+  module._setThreadCount(Math.max(1, Math.min(MAX_WASM_THREADS, Math.floor(count))));
   return module._getThreadCount();
 }

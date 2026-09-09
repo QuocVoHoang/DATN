@@ -40,7 +40,7 @@ npm run preview
 - `src/features/motionEvents.ts`: motion event tracking.
 - `src/engine/wasmMotion.ts`: TypeScript bridge to Emscripten WASM.
 - `src/engine/motionTypes.ts`: WASM module and result types.
-- `wasm/cpp/motion_wasm_simd_mt.cpp`: SIMD and multithreaded motion detector implementation.
+- `wasm/cpp/motion_detection.cpp`: SIMD and multithreaded motion detector implementation.
 - `public/wasm`: generated WASM runtime assets. Do not edit manually.
 - `src/tailwind.css`: Tailwind CSS entry point.
 

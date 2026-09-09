@@ -23,10 +23,10 @@ fi
 export EM_CACHE="$EM_CACHE_DIR"
 mkdir -p "$DATN_DIR/public/wasm"
 
-"$EMXX_BIN" "$SCRIPT_DIR/cpp/motion_wasm_simd_mt.cpp" \
+"$EMXX_BIN" "$SCRIPT_DIR/cpp/motion_detection.cpp" \
   -O3 -msimd128 -pthread -s PTHREAD_POOL_SIZE=4 -s WASM=1 \
   -s ALLOW_MEMORY_GROWTH=1 \
-  -s EXPORTED_FUNCTIONS='["_malloc","_free","_processMotion","_resetMotionDetector","_getChangedPixelCount","_setThreadCount","_getThreadCount"]' \
+  -s EXPORTED_FUNCTIONS='["_malloc","_free","_processMotion","_resetMotionDetector","_getChangedPixelCount","_getLastMotionError","_setThreadCount","_getThreadCount"]' \
   -s EXPORTED_RUNTIME_METHODS='["HEAPU8"]' \
   -o "$DATN_DIR/public/wasm/motion_wasm.js"
 

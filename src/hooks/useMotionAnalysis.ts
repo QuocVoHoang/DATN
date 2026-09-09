@@ -119,7 +119,9 @@ export function useMotionAnalysis() {
       const cores = navigator.hardwareConcurrency || 2;
       const count = cores >= 8 ? 4 : cores >= 4 ? 2 : 1;
       setActiveThreads(count);
-      void configureWasmThreads(count);
+      void configureWasmThreads(count).catch((error) => {
+        setStatus(error instanceof Error ? error.message : 'Unable to configure WASM threads');
+      });
     }
   }, []);
 
