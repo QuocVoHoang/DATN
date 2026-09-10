@@ -44,14 +44,20 @@ export async function processWithWasm(image: ImageData, threshold: number): Prom
     inputPointer = nextPointer;
     inputCapacity = input.length;
   }
+  const copyStarted = performance.now();
   module.HEAPU8.set(input, inputPointer);
+  const inputCopyMs = performance.now() - copyStarted;
+  const engineStarted = performance.now();
   const outputPointer = module._processMotion(inputPointer, image.width, image.height, threshold);
+  const engineMs = performance.now() - engineStarted;
   if (!outputPointer) {
     const code = module._getLastMotionError();
     throw new Error(motionErrorMessages[code] ?? 'Motion engine failed to process the frame.');
   }
+  const outputStarted = performance.now();
   const output = new Uint8ClampedArray(module.HEAPU8.buffer, outputPointer, input.length).slice();
-  return { processedData: new ImageData(output, image.width, image.height), changedPixels: module._getChangedPixelCount() };
+  const outputCopyMs = performance.now() - outputStarted;
+  return { processedData: new ImageData(output, image.width, image.height), changedPixels: module._getChangedPixelCount(), metrics: { inputCopyMs, engineMs, outputCopyMs } };
 }
 
 export async function resetWasm(): Promise<void> {

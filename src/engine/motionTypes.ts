@@ -1,4 +1,12 @@
-export type MotionResult = { processedData: ImageData; changedPixels: number };
+export type MotionResult = {
+  processedData: ImageData;
+  changedPixels: number;
+  metrics: {
+    inputCopyMs: number;
+    engineMs: number;
+    outputCopyMs: number;
+  };
+};
 
 export const motionErrorMessages: Record<number, string> = {
   1: 'Motion engine rejected the frame: input pointer is null.',

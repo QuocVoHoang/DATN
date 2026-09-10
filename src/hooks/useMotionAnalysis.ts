@@ -59,6 +59,7 @@ export function useMotionAnalysis() {
   const runIdRef = useRef(0);
   const frameRequestRef = useRef<number | null>(null);
   const sourceRequestRef = useRef(0);
+  const lastAnalyzedVideoTimeRef = useRef<number | null>(null);
   const tracker = useRef(new MotionEventTracker());
 
   const [status, setStatus] = useState('No video selected');
@@ -205,6 +206,7 @@ export function useMotionAnalysis() {
     setP95(0);
     setP99(0);
     setDroppedFrames(0);
+    lastAnalyzedVideoTimeRef.current = null;
     if (videoObjectUrlRef.current) {
       URL.revokeObjectURL(videoObjectUrlRef.current);
       videoObjectUrlRef.current = null;
@@ -285,6 +287,7 @@ export function useMotionAnalysis() {
     let frames = 0;
     let lastDroppedFrames = 0;
     latencySamplesRef.current = [];
+    lastAnalyzedVideoTimeRef.current = null;
     setP95(0);
     setP99(0);
 
@@ -293,13 +296,20 @@ export function useMotionAnalysis() {
 
       // Hidden source canvas provides pixels; output canvas displays processed data.
       try {
+        // requestAnimationFrame is a fallback scheduler; avoid processing the same
+        // decoded video frame more than once when playback is slower than the UI.
+        const videoTime = video.currentTime;
+        if (lastAnalyzedVideoTimeRef.current === videoTime) {
+          frameRequestRef.current = requestAnimationFrame(() => void loop());
+          return;
+        }
         const frameStarted = performance.now();
         ctx.drawImage(video, 0, 0, source.width, source.height);
         const image = ctx.getImageData(0, 0, source.width, source.height);
-        const wasmStarted = performance.now();
         const result = await processWithWasm(image, thresholdRef.current);
       if (!runningRef.current || runId !== runIdRef.current) return;
-      const nextWasmLatency = performance.now() - wasmStarted;
+      lastAnalyzedVideoTimeRef.current = videoTime;
+      const nextWasmLatency = result.metrics.engineMs;
 
       out.putImageData(result.processedData, 0, 0);
       // Normalize detected pixels against selected ROI area.
