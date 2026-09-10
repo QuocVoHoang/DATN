@@ -15,7 +15,7 @@
 namespace {
 
 constexpr int MAX_THREADS = 4;
-int active_threads = 4;
+int active_threads = 1;
 int previous_width = 0;
 int previous_height = 0;
 bool has_previous_frame = false;

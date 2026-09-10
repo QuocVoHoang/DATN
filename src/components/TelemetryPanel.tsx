@@ -57,7 +57,7 @@ export function TelemetryPanel({ metrics, quality, pipeline, onThreadCountChange
         <div className="flex items-center justify-between gap-2 text-[12px] text-[#60736c]">
           <span>Active threads</span>
           <select className="border border-[#bdccc5] bg-white px-1.5 py-1 text-[#18231f]" value={runtimeStatus.activeThreads} onChange={(event) => onThreadCountChange(Number(event.target.value))}>
-            {[1, 2, 3, 4].map((count) => <option key={count} value={count}>{count}</option>)}
+             {[1, 2, 4].map((count) => <option key={count} value={count}>{count}</option>)}
           </select>
         </div>
       </div>

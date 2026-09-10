@@ -5,7 +5,7 @@ type Props = { running: boolean; adaptiveEnabled: boolean; threshold: number; re
 
 export function ProcessingControls({ running, adaptiveEnabled, threshold, resolutionPreset, effectiveResolutionPreset, onThresholdChange, onResolutionChange }: Props) {
   return <>
-    <label className="ml-auto font-mono text-xs text-[#60736c] max-sm:ml-0">Processing resolution
+    <label className="ml-auto font-mono text-xs text-[#60736c] max-sm:ml-0">Resolution
       <select className="ml-2 border border-[#bdccc5] bg-white p-2.5 text-[#18231f]" value={adaptiveEnabled && running ? effectiveResolutionPreset : resolutionPreset} onChange={(e) => onResolutionChange(e.target.value as ResolutionPreset)} disabled={running}>
         {resolutionPresets.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}
       </select>

@@ -116,14 +116,8 @@ export function useMotionAnalysis() {
       offscreenCanvas: typeof OffscreenCanvas !== 'undefined',
     };
     setBrowserStatus(nextStatus);
-    if (nextStatus.crossOriginIsolated && nextStatus.sharedArrayBuffer) {
-      const cores = navigator.hardwareConcurrency || 2;
-      const count = cores >= 8 ? 4 : cores >= 4 ? 2 : 1;
-      setActiveThreads(count);
-      void configureWasmThreads(count).catch((error) => {
-        setStatus(error instanceof Error ? error.message : 'Unable to configure WASM threads');
-      });
-    }
+    // Keep the user-selected default (one thread). Auto-thread calibration is
+    // intentionally separate and must not silently override this preference.
   }, []);
 
   function updateThreadCount(value: number) {
