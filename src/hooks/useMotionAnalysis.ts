@@ -5,6 +5,7 @@ import { MotionEventTracker, type MotionEvent } from '../features/motionEvents';
 import { detectMovingObjects, type MovingObject } from '../features/movingObjects';
 import { getProcessingSize, resolutionPresets, type ResolutionPreset } from '../features/processingResolution';
 import { createEventCsv, createEventJson, downloadTextFile } from '../features/eventExport';
+import { chooseFastestThread, threadCandidates, type ThreadMode } from '../features/autoThread';
 
 const defaultRoi: ROI = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
 const minThreshold = 1;
@@ -83,6 +84,8 @@ export function useMotionAnalysis() {
   const [p99, setP99] = useState(0);
   const [droppedFrames, setDroppedFrames] = useState(0);
   const [activeThreads, setActiveThreads] = useState(1);
+  const [threadMode, setThreadModeState] = useState<ThreadMode>('manual');
+  const [threadStatus, setThreadStatus] = useState('Manual');
   const [motion, setMotion] = useState(0);
   const [events, setEvents] = useState<MotionEvent[]>([]);
   const [movingObjects, setMovingObjects] = useState<MovingObject[]>([]);
@@ -121,13 +124,23 @@ export function useMotionAnalysis() {
   }, []);
 
   function updateThreadCount(value: number) {
+    setThreadModeState('manual');
+    setThreadStatus('Applying');
     const next = Math.max(1, Math.min(4, Math.floor(value)));
     latencySamplesRef.current = [];
     setP95(0);
     setP99(0);
-    void configureWasmThreads(next).then(setActiveThreads).catch((error) => {
+    void configureWasmThreads(next).then((actual) => { setActiveThreads(actual); setThreadStatus('Manual'); }).catch((error) => {
       setStatus(error instanceof Error ? error.message : 'Unable to change WASM thread count');
+      setThreadStatus('Error');
     });
+  }
+
+  async function updateThreadMode(mode: ThreadMode) {
+    setThreadModeState(mode);
+    if (mode === 'manual') { setThreadStatus('Manual'); return; }
+    if (!sourceReady || !sourceRef.current || !videoRef.current) { setThreadStatus('Auto: start analysis to calibrate'); return; }
+    setThreadStatus('Calibrating');
   }
 
   function updateThreshold(value: number) {
@@ -277,6 +290,24 @@ export function useMotionAnalysis() {
     setProcessingSize(size);
     setStatus('Analyzing');
 
+    if (threadMode === 'auto') {
+      ctx.drawImage(video, 0, 0, source.width, source.height);
+      const calibrationImage = ctx.getImageData(0, 0, source.width, source.height);
+      const results: Array<{ threads: number; latency: number }> = [];
+      for (const candidate of threadCandidates) {
+        await configureWasmThreads(candidate);
+        await resetWasm();
+        const started = performance.now();
+        await processWithWasm(calibrationImage, thresholdRef.current);
+        results.push({ threads: candidate, latency: performance.now() - started });
+      }
+      const selected = chooseFastestThread(results);
+      await configureWasmThreads(selected);
+      setActiveThreads(selected);
+      await resetWasm();
+      setThreadStatus(`Auto: ${selected} thread${selected === 1 ? '' : 's'}`);
+    }
+
     let last = performance.now();
     let frames = 0;
     let lastDroppedFrames = 0;
@@ -425,6 +456,9 @@ export function useMotionAnalysis() {
     browserStatus,
     runtimeStatus,
     activeThreads,
+    threadMode,
+    threadStatus,
+    setThreadMode: updateThreadMode,
     setThreadCount: updateThreadCount,
     selectVideo,
     start,

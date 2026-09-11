@@ -24,9 +24,12 @@ type TelemetryPanelProps = {
   quality: { processingSize: { width: number; height: number }; adaptiveEnabled: boolean; effectiveResolutionPreset: string };
   pipeline: { browserStatus: BrowserStatus; runtimeStatus: RuntimeStatus };
   onThreadCountChange: (count: number) => void;
+  threadMode: 'auto' | 'manual';
+  threadStatus: string;
+  onThreadModeChange: (mode: 'auto' | 'manual') => void;
 };
 
-export function TelemetryPanel({ metrics, quality, pipeline, onThreadCountChange }: TelemetryPanelProps) {
+export function TelemetryPanel({ metrics, quality, pipeline, onThreadCountChange, threadMode, threadStatus, onThreadModeChange }: TelemetryPanelProps) {
   const { fps, wasmLatency, endToEndLatency, p95, p99, droppedFrames, motion } = metrics;
   const { processingSize, adaptiveEnabled, effectiveResolutionPreset } = quality;
   const { browserStatus, runtimeStatus } = pipeline;
@@ -56,10 +59,15 @@ export function TelemetryPanel({ metrics, quality, pipeline, onThreadCountChange
         <Status label="Pthreads runtime" value={runtimeStatus.pthreads} enabled={runtimeStatus.pthreads === 'available'} />
         <div className="flex items-center justify-between gap-2 text-[12px] text-[#60736c]">
           <span>Active threads</span>
-          <select className="border border-[#bdccc5] bg-white px-1.5 py-1 text-[#18231f]" value={runtimeStatus.activeThreads} onChange={(event) => onThreadCountChange(Number(event.target.value))}>
-             {[1, 2, 4].map((count) => <option key={count} value={count}>{count}</option>)}
+          <select className="border border-[#bdccc5] bg-white px-1.5 py-1 text-[#18231f]" value={threadMode === 'auto' ? 'auto' : runtimeStatus.activeThreads} onChange={(event) => {
+            if (event.target.value === 'auto') onThreadModeChange('auto');
+            else { onThreadModeChange('manual'); onThreadCountChange(Number(event.target.value)); }
+          }}>
+            <option value="auto">Auto</option>
+            {[1, 2, 4].map((count) => <option key={count} value={count}>{count}</option>)}
           </select>
         </div>
+        <div className="col-span-2 text-right text-[11px] text-[#587168]">{threadStatus}</div>
       </div>
     </div>
     <div className="mt-5 border-t border-[#d7e1dc] pt-4">

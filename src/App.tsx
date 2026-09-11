@@ -41,6 +41,9 @@ export default function App() {
             quality={{ processingSize: motion.processingSize, adaptiveEnabled: motion.adaptiveEnabled, effectiveResolutionPreset: motion.effectiveResolutionPreset }}
             pipeline={{ browserStatus: motion.browserStatus, runtimeStatus: motion.runtimeStatus }}
             onThreadCountChange={motion.setThreadCount}
+            threadMode={motion.threadMode}
+            threadStatus={motion.threadStatus}
+            onThreadModeChange={motion.setThreadMode}
           />
         </div>
       </section>
