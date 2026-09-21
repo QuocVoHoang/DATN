@@ -55,9 +55,13 @@ export async function processWithWasm(image: ImageData, threshold: number): Prom
     throw new Error(motionErrorMessages[code] ?? 'Motion engine failed to process the frame.');
   }
   const outputStarted = performance.now();
-  const output = new Uint8ClampedArray(module.HEAPU8.buffer, outputPointer, input.length).slice();
-  const outputCopyMs = performance.now() - outputStarted;
-  return { processedData: new ImageData(output, image.width, image.height), changedPixels: module._getChangedPixelCount(), metrics: { inputCopyMs, engineMs, outputCopyMs } };
+  const heap = module.HEAPU8;
+  const byteLength = input.length;
+  if (outputPointer < 0 || outputPointer + byteLength > heap.byteLength) {
+    throw new Error('Motion engine returned an output outside WASM memory.');
+  }
+  const outputViewMs = performance.now() - outputStarted;
+  return { mask: { width: image.width, height: image.height, data: new Uint8Array(heap.buffer, outputPointer, byteLength) }, changedPixels: module._getChangedPixelCount(), metrics: { inputCopyMs, engineMs, outputViewMs } };
 }
 
 export async function resetWasm(): Promise<void> {

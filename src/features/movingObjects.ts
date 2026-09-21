@@ -1,4 +1,5 @@
 import type { ROI } from './roi';
+import type { MotionMask } from '../engine/motionTypes';
 
 export type MovingObject = {
   id: number;
@@ -9,15 +10,26 @@ export type MovingObject = {
   maxIntensity: number;
 };
 
-export function detectMovingObjects(mask: ImageData, roi: ROI, minArea: number): MovingObject[] {
+export type MovingObjectWorkspace = { visited: Uint8Array; stack: Int32Array; capacity: number };
+export type MovingObjectAnalysis = { objects: MovingObject[]; changedPixelsInRoi: number };
+export function createMovingObjectWorkspace(): MovingObjectWorkspace { return { visited: new Uint8Array(0), stack: new Int32Array(0), capacity: 0 }; }
+
+export function detectMovingObjects(mask: MotionMask, roi: ROI, minArea: number, workspace: MovingObjectWorkspace): MovingObjectAnalysis {
   const { width, height, data } = mask;
   const x0 = Math.max(0, Math.floor(roi.x * width));
   const y0 = Math.max(0, Math.floor(roi.y * height));
   const x1 = Math.min(width, Math.ceil((roi.x + roi.width) * width));
   const y1 = Math.min(height, Math.ceil((roi.y + roi.height) * height));
-  const visited = new Uint8Array(width * height);
+  const pixelCount = width * height;
+  if (pixelCount > workspace.capacity) {
+    workspace.visited = new Uint8Array(pixelCount);
+    workspace.stack = new Int32Array(pixelCount);
+    workspace.capacity = pixelCount;
+  }
+  workspace.visited.fill(0, 0, pixelCount);
+  const { visited, stack } = workspace;
   const objects: MovingObject[] = [];
-  const stack: number[] = [];
+  let changedPixelsInRoi = 0;
 
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
@@ -25,7 +37,8 @@ export function detectMovingObjects(mask: ImageData, roi: ROI, minArea: number):
       if (visited[start] || data[start * 4] === 0) continue;
 
       visited[start] = 1;
-      stack.push(start);
+       let stackSize = 0;
+       stack[stackSize++] = start;
       let area = 0;
       let minX = x;
       let maxX = x;
@@ -36,8 +49,8 @@ export function detectMovingObjects(mask: ImageData, roi: ROI, minArea: number):
       let sumIntensity = 0;
       let maxIntensity = 0;
 
-      while (stack.length > 0) {
-        const index = stack.pop()!;
+       while (stackSize > 0) {
+         const index = stack[--stackSize];
         const currentX = index % width;
         const currentY = Math.floor(index / width);
         const intensity = data[index * 4];
@@ -51,16 +64,14 @@ export function detectMovingObjects(mask: ImageData, roi: ROI, minArea: number):
         minY = Math.min(minY, currentY);
         maxY = Math.max(maxY, currentY);
 
-        for (const [nextX, nextY] of [[currentX - 1, currentY], [currentX + 1, currentY], [currentX, currentY - 1], [currentX, currentY + 1]]) {
-          if (nextX < x0 || nextX >= x1 || nextY < y0 || nextY >= y1) continue;
-          const next = nextY * width + nextX;
-          if (!visited[next] && data[next * 4] > 0) {
-            visited[next] = 1;
-            stack.push(next);
-          }
-        }
-      }
+         const left = currentX - 1, right = currentX + 1, above = currentY - 1, below = currentY + 1;
+         if (left >= x0) { const next = currentY * width + left; if (!visited[next] && data[next * 4] > 0) { visited[next] = 1; stack[stackSize++] = next; } }
+         if (right < x1) { const next = currentY * width + right; if (!visited[next] && data[next * 4] > 0) { visited[next] = 1; stack[stackSize++] = next; } }
+         if (above >= y0) { const next = above * width + currentX; if (!visited[next] && data[next * 4] > 0) { visited[next] = 1; stack[stackSize++] = next; } }
+         if (below < y1) { const next = below * width + currentX; if (!visited[next] && data[next * 4] > 0) { visited[next] = 1; stack[stackSize++] = next; } }
+       }
 
+       changedPixelsInRoi += area;
       if (area < minArea) continue;
       objects.push({
         id: objects.length + 1,
@@ -73,5 +84,5 @@ export function detectMovingObjects(mask: ImageData, roi: ROI, minArea: number):
     }
   }
 
-  return objects;
+  return { objects, changedPixelsInRoi };
 }

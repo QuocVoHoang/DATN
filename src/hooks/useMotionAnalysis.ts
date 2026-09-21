@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { configureWasmThreads, processWithWasm, resetWasm } from '../engine/wasmMotion';
-import { clampRoi, countPixelsInRoi, type ROI } from '../features/roi';
+import { clampRoi, type ROI } from '../features/roi';
 import { MotionEventTracker, type MotionEvent } from '../features/motionEvents';
-import { detectMovingObjects, type MovingObject } from '../features/movingObjects';
+import { createMovingObjectWorkspace, detectMovingObjects, type MovingObject } from '../features/movingObjects';
+import { LatencySamples } from '../features/latencySamples';
 import { getProcessingSize, resolutionPresets, type ResolutionPreset } from '../features/processingResolution';
 import { createEventCsv, createEventJson, downloadTextFile } from '../features/eventExport';
 import { chooseFastestThread, threadCandidates, type ThreadMode } from '../features/autoThread';
@@ -39,13 +40,6 @@ type RuntimeStatus = {
   activeThreads: number;
 };
 
-function percentile(samples: number[], p: number) {
-  if (samples.length === 0) return 0;
-  const sorted = [...samples].sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1);
-  return sorted[Math.max(0, index)];
-}
-
 function clampThreshold(value: number) {
   if (!Number.isFinite(value)) return minThreshold;
   return Math.min(maxThreshold, Math.max(minThreshold, Math.round(value)));
@@ -54,14 +48,17 @@ function clampThreshold(value: number) {
 export function useMotionAnalysis() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const sourceRef = useRef<HTMLCanvasElement>(null);
-  const outputRef = useRef<HTMLCanvasElement>(null);
   const videoObjectUrlRef = useRef<string | null>(null);
   const runningRef = useRef(false);
   const runIdRef = useRef(0);
   const frameRequestRef = useRef<number | null>(null);
+  const videoFrameRequestRef = useRef<number | null>(null);
+  const dashboardTimerRef = useRef<number | null>(null);
   const sourceRequestRef = useRef(0);
   const lastAnalyzedVideoTimeRef = useRef<number | null>(null);
   const tracker = useRef(new MotionEventTracker());
+  const objectWorkspace = useRef(createMovingObjectWorkspace());
+  const latencySamples = useRef(new LatencySamples(maxLatencySamples));
 
   const [status, setStatus] = useState('No video selected');
   const [sourceReady, setSourceReady] = useState(false);
@@ -106,9 +103,9 @@ export function useMotionAnalysis() {
     pthreads: browserStatus.crossOriginIsolated && browserStatus.sharedArrayBuffer ? 'available' : 'unavailable',
     activeThreads,
   };
-  const latencySamplesRef = useRef<number[]>([]);
   const slowWindowsRef = useRef(0);
   const fastWindowsRef = useRef(0);
+  const dashboardRef = useRef({ fps: 0, wasmLatency: 0, endToEndLatency: 0, p95: 0, p99: 0, motion: 0 });
 
   useEffect(() => {
     const nextStatus = {
@@ -119,15 +116,21 @@ export function useMotionAnalysis() {
       offscreenCanvas: typeof OffscreenCanvas !== 'undefined',
     };
     setBrowserStatus(nextStatus);
+    dashboardTimerRef.current = window.setInterval(() => {
+      const snapshot = dashboardRef.current;
+      setFps(snapshot.fps); setWasmLatency(snapshot.wasmLatency); setEndToEndLatency(snapshot.endToEndLatency);
+      setP95(snapshot.p95); setP99(snapshot.p99); setMotion(snapshot.motion);
+    }, 200);
     // Keep the user-selected default (one thread). Auto-thread calibration is
     // intentionally separate and must not silently override this preference.
+    return () => { if (dashboardTimerRef.current !== null) window.clearInterval(dashboardTimerRef.current); };
   }, []);
 
   function updateThreadCount(value: number) {
     setThreadModeState('manual');
     setThreadStatus('Applying');
     const next = Math.max(1, Math.min(4, Math.floor(value)));
-    latencySamplesRef.current = [];
+    latencySamples.current.reset();
     setP95(0);
     setP99(0);
     void configureWasmThreads(next).then((actual) => { setActiveThreads(actual); setThreadStatus('Manual'); }).catch((error) => {
@@ -182,6 +185,11 @@ export function useMotionAnalysis() {
     if (frameRequestRef.current !== null) {
       cancelAnimationFrame(frameRequestRef.current);
       frameRequestRef.current = null;
+    }
+    if (videoFrameRequestRef.current !== null) {
+      const video = videoRef.current as HTMLVideoElement & { cancelVideoFrameCallback?: (id: number) => void } | null;
+      video?.cancelVideoFrameCallback?.(videoFrameRequestRef.current);
+      videoFrameRequestRef.current = null;
     }
     videoRef.current?.pause();
     setRunning(false);
@@ -274,10 +282,8 @@ export function useMotionAnalysis() {
     runningRef.current = true;
 
     const source = sourceRef.current;
-    const output = outputRef.current;
     const ctx = source?.getContext('2d', { willReadFrequently: true });
-    const out = output?.getContext('2d');
-    if (!source || !output || !ctx || !out) {
+    if (!source || !ctx) {
       stopAnalysis('Canvas is unavailable');
       return;
     }
@@ -285,8 +291,8 @@ export function useMotionAnalysis() {
     const size = getProcessingSize(video.videoWidth, video.videoHeight, resolutionPresetRef.current);
     effectiveResolutionRef.current = resolutionPresetRef.current;
     setEffectiveResolutionPreset(resolutionPresetRef.current);
-    source.width = output.width = size.width;
-    source.height = output.height = size.height;
+    source.width = size.width;
+    source.height = size.height;
     setProcessingSize(size);
     setStatus('Analyzing');
 
@@ -311,21 +317,37 @@ export function useMotionAnalysis() {
     let last = performance.now();
     let frames = 0;
     let lastDroppedFrames = 0;
-    latencySamplesRef.current = [];
+    latencySamples.current.reset();
     lastAnalyzedVideoTimeRef.current = null;
     setP95(0);
     setP99(0);
 
-    const loop = async () => {
+    let frameInFlight = false;
+    const scheduleNext = () => {
       if (!runningRef.current || runId !== runIdRef.current) return;
+      const videoWithCallback = video as HTMLVideoElement & {
+        requestVideoFrameCallback?: (callback: (now: number, metadata: { mediaTime: number }) => void) => number;
+      };
+      if (videoWithCallback.requestVideoFrameCallback) {
+        videoFrameRequestRef.current = videoWithCallback.requestVideoFrameCallback((_now, metadata) => { void loop(metadata.mediaTime); });
+      } else {
+        frameRequestRef.current = requestAnimationFrame(() => void loop(video.currentTime));
+      }
+    };
+
+    const loop = async (callbackMediaTime?: number) => {
+      if (!runningRef.current || runId !== runIdRef.current) return;
+      if (frameInFlight) return;
+      frameInFlight = true;
 
       // Hidden source canvas provides pixels; output canvas displays processed data.
       try {
         // requestAnimationFrame is a fallback scheduler; avoid processing the same
         // decoded video frame more than once when playback is slower than the UI.
-        const videoTime = video.currentTime;
+        const videoTime = callbackMediaTime ?? video.currentTime;
         if (lastAnalyzedVideoTimeRef.current === videoTime) {
-          frameRequestRef.current = requestAnimationFrame(() => void loop());
+          frameInFlight = false;
+          scheduleNext();
           return;
         }
         const frameStarted = performance.now();
@@ -336,40 +358,38 @@ export function useMotionAnalysis() {
       lastAnalyzedVideoTimeRef.current = videoTime;
       const nextWasmLatency = result.metrics.engineMs;
 
-      out.putImageData(result.processedData, 0, 0);
       // Normalize detected pixels against selected ROI area.
       const currentRoi = roiRef.current;
-      setMovingObjects(detectMovingObjects(result.processedData, currentRoi, minObjectArea));
+      const analysis = detectMovingObjects(result.mask, currentRoi, minObjectArea, objectWorkspace.current);
+      setMovingObjects(analysis.objects);
       const roiPixels = Math.max(1, currentRoi.width * currentRoi.height * image.width * image.height);
-      const ratio = countPixelsInRoi(result.processedData, currentRoi) / roiPixels;
+      const ratio = analysis.changedPixelsInRoi / roiPixels;
       const nextEndToEndLatency = performance.now() - frameStarted;
-      const samples = latencySamplesRef.current;
-      samples.push(nextEndToEndLatency);
-      if (samples.length > maxLatencySamples) samples.shift();
-      setP95(percentile(samples, 0.95));
-      setP99(percentile(samples, 0.99));
-      const event = tracker.current.update(video.currentTime, ratio, 0.02, nextWasmLatency, nextEndToEndLatency);
+       latencySamples.current.add(nextEndToEndLatency);
+       const event = tracker.current.update(videoTime, ratio, 0.02, nextWasmLatency, nextEndToEndLatency);
 
       // Tracker turns continuous motion into discrete timeline events.
       if (event) setEvents((current) => [event, ...current]);
 
-      setMotion(Math.round(ratio * 10000) / 100);
-      setWasmLatency(Math.round(nextWasmLatency * 100) / 100);
-      setEndToEndLatency(Math.round(nextEndToEndLatency * 100) / 100);
+       dashboardRef.current.motion = Math.round(ratio * 10000) / 100;
+       dashboardRef.current.wasmLatency = Math.round(nextWasmLatency * 100) / 100;
+       dashboardRef.current.endToEndLatency = Math.round(nextEndToEndLatency * 100) / 100;
       frames++;
 
       const now = performance.now();
       // Report FPS over one-second windows to avoid noisy per-frame values.
       if (now - last >= 1000) {
         const windowFps = (frames * 1000) / (now - last);
-        setFps(windowFps);
+         dashboardRef.current.fps = windowFps;
         const quality = video.getVideoPlaybackQuality?.();
         const totalDroppedFrames = quality?.droppedVideoFrames ?? lastDroppedFrames;
         const windowDroppedFrames = Math.max(0, totalDroppedFrames - lastDroppedFrames);
         lastDroppedFrames = totalDroppedFrames;
         setDroppedFrames((current) => current + windowDroppedFrames);
-        if (adaptiveEnabledRef.current && samples.length > 0) {
-          const currentP95 = percentile(samples, 0.95);
+        const [currentP95, currentP99] = latencySamples.current.percentiles(0.95, 0.99);
+         dashboardRef.current.p95 = currentP95;
+         dashboardRef.current.p99 = currentP99;
+        if (adaptiveEnabledRef.current && currentP95 > 0) {
           const maxIndex = resolutionOrder.indexOf(resolutionPresetRef.current);
           const currentIndex = resolutionOrder.indexOf(effectiveResolutionRef.current);
           let nextPreset = effectiveResolutionRef.current;
@@ -398,10 +418,10 @@ export function useMotionAnalysis() {
             effectiveResolutionRef.current = nextPreset;
             setEffectiveResolutionPreset(nextPreset);
             const nextSize = getProcessingSize(video.videoWidth, video.videoHeight, nextPreset);
-            source.width = output.width = nextSize.width;
-            source.height = output.height = nextSize.height;
+            source.width = nextSize.width;
+            source.height = nextSize.height;
             setProcessingSize(nextSize);
-            latencySamplesRef.current = [];
+            latencySamples.current.reset();
             setP95(0);
             setP99(0);
             await resetWasm();
@@ -411,13 +431,15 @@ export function useMotionAnalysis() {
         last = now;
       }
 
-        frameRequestRef.current = requestAnimationFrame(() => void loop());
+        frameInFlight = false;
+        scheduleNext();
       } catch (error) {
+        frameInFlight = false;
         if (runningRef.current && runId === runIdRef.current) stopAnalysis(error instanceof Error ? error.message : 'Frame processing failed');
       }
     };
 
-    void loop();
+    scheduleNext();
   }
 
   function stop() {
@@ -430,7 +452,6 @@ export function useMotionAnalysis() {
   return {
     videoRef,
     sourceRef,
-    outputRef,
     status,
     running,
     sourceReady,

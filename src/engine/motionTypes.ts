@@ -1,10 +1,16 @@
+export type MotionMask = {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8Array;
+};
+
 export type MotionResult = {
-  processedData: ImageData;
+  mask: MotionMask;
   changedPixels: number;
   metrics: {
     inputCopyMs: number;
     engineMs: number;
-    outputCopyMs: number;
+    outputViewMs: number;
   };
 };
 

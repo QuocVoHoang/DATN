@@ -1,4 +1,5 @@
 export type ROI = { x: number; y: number; width: number; height: number };
+import type { MotionMask } from '../engine/motionTypes';
 
 const minRoiSize = 0.05;
 
@@ -19,7 +20,7 @@ export function resizeRoi(roi: ROI, dw: number, dh: number): ROI {
   return clampRoi({ ...roi, width: roi.width + dw, height: roi.height + dh });
 }
 
-export function countPixelsInRoi(image: ImageData, roi: ROI): number {
+export function countPixelsInRoi(image: MotionMask, roi: ROI): number {
   const x0 = Math.max(0, Math.floor(roi.x * image.width));
   const y0 = Math.max(0, Math.floor(roi.y * image.height));
   const x1 = Math.min(image.width, Math.ceil((roi.x + roi.width) * image.width));

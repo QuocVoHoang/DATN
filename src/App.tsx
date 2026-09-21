@@ -18,7 +18,7 @@ export default function App() {
       <section className="flex flex-row items-start gap-5 max-[800px]:flex-col">
         <div className="w-full flex-1">
           <VideoStage
-            media={{ videoRef: motion.videoRef, sourceRef: motion.sourceRef, outputRef: motion.outputRef }}
+             media={{ videoRef: motion.videoRef, sourceRef: motion.sourceRef }}
             overlay={{ roi: motion.roi, onRoiChange: motion.setRoi, movingObjects: motion.movingObjects }}
           />
         </div>
